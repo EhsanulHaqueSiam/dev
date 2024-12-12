@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# Function to check if a command is available
+command_exists() {
+  command -v "$1" &>/dev/null
+}
+
+# Install Rust if not installed
+if ! command_exists rustup; then
+  echo "Rust not found, installing Rust..."
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  rustup update
+else
+  echo "Rust is already installed."
+fi
+
+# Install Yazi if not installed
+if ! command_exists yazi-cli; then
+  echo "Yazi not found, installing Yazi..."
+  cargo install --locked yazi-fm yazi-cli
+else
+  echo "Yazi is already installed."
+fi
+
+# Install tools if not installed
+tools=("ffmpeg" "7z" "jq" "poppler-utils" "fd-find" "ripgrep" "zoxide" "imagemagick" "xclip")
+
+for tool in "${tools[@]}"; do
+  if ! command_exists $tool; then
+    echo "$tool not found, installing..."
+    case $tool in
+      "7z") sudo apt install p7zip-full p7zip-rar ;;
+      "poppler-utils") sudo apt install poppler-utils ;;
+      "fd-find") sudo apt install fd-find ;;
+      "ripgrep") sudo apt install ripgrep ;;
+      "zoxide") sudo apt install zoxide ;;
+      "imagemagick") sudo apt install imagemagick ;;
+      "xclip") sudo apt install xclip ;;
+      *) sudo apt install $tool ;;
+    esac
+  else
+    echo "$tool is already installed."
+  fi
+done
