@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+# Define variables
+URL="https://github.com/wez/wezterm/releases/download/nightly/wezterm-nightly.Ubuntu24.04.deb"
+FILENAME="wezterm-nightly.Ubuntu24.04.deb"
+
+# Update package list
+echo "Updating package list..."
+sudo apt update
+
+# Download the WezTerm .deb package
+echo "Downloading WezTerm from $URL..."
+wget -q --show-progress -O $FILENAME $URL
+
+# Check if the download was successful
+if [ ! -f $FILENAME ]; then
+  echo "Error: Failed to download WezTerm."
+  exit 1
+fi
+
+# Install the package
+echo "Installing WezTerm..."
+sudo dpkg -i $FILENAME
+
+# Fix any missing dependencies
+echo "Fixing dependencies..."
+sudo apt-get install -f -y
+
+# Verify installation
+if command -v wezterm &>/dev/null; then
+  echo "WezTerm installed successfully!"
+else
+  echo "Error: WezTerm installation failed."
+  exit 1
+fi
+
+# Cleanup
+echo "Cleaning up..."
+rm -f $FILENAME
+
+echo "Done."

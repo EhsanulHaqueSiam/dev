@@ -1,0 +1,66 @@
+#!/bin/bash
+
+# Function to determine the system architecture
+get_architecture() {
+    arch=$(uname -m)
+    case $arch in
+        x86_64) echo "amd64" ;;
+        aarch64) echo "arm64" ;;
+        *) echo "Unsupported architecture: $arch"; exit 1 ;;
+    esac
+}
+
+# Set the architecture dynamically
+ARCH=$(get_architecture)
+
+# Create a temporary working directory
+WORK_DIR=$(mktemp -d)
+cd "$WORK_DIR"
+
+# Download the latest kubectl binary
+KUBECTL_URL="https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$ARCH/kubectl"
+echo "Downloading kubectl from $KUBECTL_URL..."
+curl -LO "$KUBECTL_URL"
+
+# Download the checksum file
+CHECKSUM_URL="https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$ARCH/kubectl.sha256"
+echo "Downloading checksum from $CHECKSUM_URL..."
+curl -LO "$CHECKSUM_URL"
+
+# Validate the downloaded binary
+if echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check; then
+    echo "kubectl binary validation succeeded."
+else
+    echo "kubectl binary validation failed. Exiting." >&2
+    exit 1
+fi
+
+# Install kubectl
+if [ "$EUID" -ne 0 ]; then
+    echo "No root privileges detected. Installing to ~/.local/bin..."
+    chmod +x kubectl
+    mkdir -p ~/.local/bin
+    mv ./kubectl ~/.local/bin/kubectl
+
+    # Add ~/.local/bin to PATH for bash and zsh
+    for rc_file in ~/.bashrc ~/.zshrc; do
+        if [[ -f "$rc_file" ]] && ! grep -q "~/.local/bin" "$rc_file"; then
+            echo "Adding ~/.local/bin to PATH in $rc_file..."
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rc_file"
+        fi
+    done
+
+    # Ensure PATH is updated in the current session
+    export PATH="$HOME/.local/bin:$PATH"
+else
+    echo "Installing kubectl to /usr/local/bin..."
+    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+fi
+
+# Cleanup
+cd ~
+rm -rf "$WORK_DIR"
+
+# Test installation
+echo "Testing kubectl installation..."
+kubectl version --client

@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# Exit script on any error
+set -e
+
+# Define variables
+DEB_URL="https://www.expressvpn.works/clients/linux/expressvpn_3.79.0.0-1_amd64.deb"
+DEB_FILE="expressvpn_latest.deb"
+
+# Function to print status messages
+print_status() {
+    echo "\n[INFO] $1\n"
+}
+
+# Download the ExpressVPN .deb file
+print_status "Downloading ExpressVPN package..."
+wget -O $DEB_FILE $DEB_URL
+
+# Update the system
+print_status "Updating system packages..."
+sudo apt update && sudo apt upgrade -y
+
+# Install dependencies for .deb files
+print_status "Installing required dependencies..."
+sudo apt install -y apt-transport-https software-properties-common
+
+# Install the ExpressVPN package
+print_status "Installing ExpressVPN package..."
+sudo dpkg -i $DEB_FILE
+
+# Fix missing dependencies if needed
+print_status "Fixing dependencies..."
+sudo apt install -f -y
+
+# Verify the installation
+print_status "Verifying ExpressVPN installation..."
+if command -v expressvpn >/dev/null 2>&1; then
+    expressvpn --version
+    print_status "ExpressVPN installed successfully!"
+else
+    echo "[ERROR] ExpressVPN installation failed."
+    exit 1
+fi
+
+# Activate ExpressVPN
+print_status "Activating ExpressVPN..."
+echo "Run 'expressvpn activate' to activate ExpressVPN with your activation code."
+
+# Clean up
+print_status "Cleaning up..."
+rm -f $DEB_FILE
+
+print_status "Installation complete!"

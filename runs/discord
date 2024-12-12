@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# Download Discord .deb file (latest version)
+wget -O discord.deb "https://discord.com/api/download?platform=linux&format=deb"
+
+# Install the .deb package
+sudo dpkg -i discord.deb
+
+# Fix missing dependencies if there are any
+sudo apt-get install -f
+
+# Clean up by removing the downloaded .deb file
+rm discord.deb
+
+echo "Discord installation is complete!"

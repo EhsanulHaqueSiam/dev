@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+
+# Update package list and install prerequisites
+sudo apt update
+sudo apt install -y curl unzip build-essential
+
+# Install Rust
+echo "Installing Rust..."
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+# Install Node.js
+echo "Installing Node.js..."
+curl -fsSL https://deb.nodesource.com/setup_current.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Install Go
+echo "Installing Go..."
+curl -fsSL https://go.dev/dl/go1.23.4.linux-amd64.tar.gz -o go.tar.gz
+sudo tar -C /usr/local -xzf go.tar.gz
+rm go.tar.gz
+
+# Install Python
+echo "Installing Python..."
+sudo apt install -y python3 python3-pip python3-venv
+
+# Install SDKMAN
+echo "Installing SDKMAN..."
+curl -s "https://get.sdkman.io" | bash
+source "$HOME/.sdkman/bin/sdkman-init.sh"
+
+# Install Java and Kotlin using SDKMAN
+echo "Installing Java and Kotlin using SDKMAN..."
+sdk install java
+sdk install kotlin
+
+# Add all necessary paths to ~/.bashrc and ~/.zshrc
+echo "Updating ~/.bashrc and ~/.zshrc with necessary paths..."
+
+# Rust
+echo "export PATH=\$PATH:\$HOME/.cargo/bin" >> ~/.bashrc
+echo "export PATH=\$PATH:\$HOME/.cargo/bin" >> ~/.zshrc
+
+# Go
+echo "export PATH=\$PATH:/usr/local/go/bin" >> ~/.bashrc
+echo "export PATH=\$PATH:/usr/local/go/bin" >> ~/.zshrc
+
+# SDKMAN
+echo 'source "$HOME/.sdkman/bin/sdkman-init.sh"' >> ~/.bashrc
+echo 'source "$HOME/.sdkman/bin/sdkman-init.sh"' >> ~/.zshrc
+
+# Node.js (if installed globally via apt)
+echo "export PATH=\$PATH:/usr/bin/node" >> ~/.bashrc
+echo "export PATH=\$PATH:/usr/bin/node" >> ~/.zshrc
+
+# Python (if installed via apt)
+echo "export PATH=\$PATH:/usr/bin/python3" >> ~/.bashrc
+echo "export PATH=\$PATH:/usr/bin/python3" >> ~/.zshrc
+
+# Reload .bashrc and .zshrc to apply changes
+source ~/.bashrc
+source ~/.zshrc
+
+# Print installed versions
+echo "Installation complete! Versions:"
+rustc --version
+node --version
+go version
+python3 --version
+java -version
+kotlin -version
+
+
+# go??? i need to install this
+# lua btw
+cargo install stylua
+
+# luarocks
+pushd /tmp/luarocks-3.11.0
+(
+    wget --output-document /tmp/luarocks.tar.gz https://luarocks.org/releases/luarocks-3.11.0.tar.gz
+    tar zxpf /tmp/luarocks.tar.gz -C /tmp
+    cd
+    ./configure && make && sudo make install
+)
+popd
+
+luarocks install luacheck
+
