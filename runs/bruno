@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# Variables
+BRUNO_URL=$(curl -s https://api.github.com/repos/usebruno/bruno/releases/latest | grep browser_download_url | grep amd64_linux.deb | cut -d '"' -f 4)
+DEB_FILE=$(basename "$BRUNO_URL")
+
+# Download Bruno
+if ! wget -q "$BRUNO_URL" -O "$DEB_FILE"; then
+    echo "Failed to download Bruno from $BRUNO_URL"
+    exit 1
+fi
+
+# Install Bruno using dpkg
+if ! sudo dpkg -i "$DEB_FILE"; then
+    echo "Failed to install Bruno. Attempting to fix dependencies."
+    sudo apt-get install -f -y
+    sudo dpkg -i "$DEB_FILE"
+fi
+
+# Cleanup
+echo "Cleaning up..."
+rm -f "$DEB_FILE"
+
+# Confirm installation
+echo "Bruno installed successfully!"
+bruno --version
