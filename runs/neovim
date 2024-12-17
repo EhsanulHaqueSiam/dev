@@ -21,4 +21,6 @@ make -C ~/neovim clean
 make -C ~/neovim CMAKE_BUILD_TYPE=RelWithDebInfo
 sudo make -C ~/neovim install
 
+mv ~/.config/nvim{,.bak}
+
 git clone https://github.com/nvim-lua/plenary.nvim.git $HOME/personal/plenary
