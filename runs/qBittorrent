@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# Define variables
+URL="https://github.com/c0re100/qBittorrent-Enhanced-Edition/releases/latest/download/qBittorrent-Enhanced-Edition-x86_64.AppImage"
+DEST_DIR="$HOME/.local/bin"
+FILE_NAME="qBittorrent"
+
+# Create destination directory if it doesn't exist
+mkdir -p "$DEST_DIR"
+
+# Download the latest version
+echo "Downloading the latest qBittorrent Enhanced Edition..."
+curl -L "$URL" -o "$DEST_DIR/$FILE_NAME"
+
+# Make the file executable
+echo "Making the AppImage executable..."
+chmod +x "$DEST_DIR/$FILE_NAME"
+
+# Provide installation details
+echo "qBittorrent Enhanced Edition has been installed to $DEST_DIR/$FILE_NAME."
+echo "You can run it using: $FILE_NAME (if $DEST_DIR is in your PATH)"
+
+# Verify the installation
+if command -v "$FILE_NAME" >/dev/null 2>&1; then
+    echo "Installation successful!"
+else
+    echo "Please ensure $DEST_DIR is in your PATH or add it to your shell configuration:"
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
+    echo "Run 'source ~/.bashrc' or 'source ~/.zshrc' to apply changes."
+fi
