@@ -20,9 +20,9 @@ fi
 echo "Downloading Toolbox App from $TOOLBOX_URL..."
 wget "$TOOLBOX_URL" -O /tmp/jetbrains-toolbox.tar.gz
 
-# Extract the tarball in /tmp
+# Extract the tarball in /tmp with sudo
 echo "Extracting Toolbox App..."
-tar -xzf /tmp/jetbrains-toolbox.tar.gz -C /tmp
+sudo tar -xzf /tmp/jetbrains-toolbox.tar.gz -C /tmp
 cd /tmp/jetbrains-toolbox-*
 
 # Launch the Toolbox App
@@ -32,7 +32,7 @@ echo "Launching Toolbox App..."
 # After the first launch, it will be installed at $HOME/.local/share/JetBrains/Toolbox/bin
 echo "Toolbox App installed at $HOME/.local/share/JetBrains/Toolbox/bin"
 
-# Clean up the temporary files
+# Clean up the temporary files with sudo
 echo "Cleaning up temporary files..."
-rm -rf /tmp/jetbrains-toolbox-*
-rm /tmp/jetbrains-toolbox.tar.gz
+sudo rm -rf /tmp/jetbrains-toolbox-*
+sudo rm /tmp/jetbrains-toolbox.tar.gz
