@@ -16,14 +16,14 @@ if [ -z "$TOOLBOX_URL" ]; then
     exit 1
 fi
 
-# Download the tarball
+# Download the tarball to /tmp
 echo "Downloading Toolbox App from $TOOLBOX_URL..."
-wget "$TOOLBOX_URL" -O jetbrains-toolbox.tar.gz
+wget "$TOOLBOX_URL" -O /tmp/jetbrains-toolbox.tar.gz
 
-# Extract the tarball
+# Extract the tarball in /tmp
 echo "Extracting Toolbox App..."
-tar -xzf jetbrains-toolbox.tar.gz
-cd jetbrains-toolbox-*
+tar -xzf /tmp/jetbrains-toolbox.tar.gz -C /tmp
+cd /tmp/jetbrains-toolbox-*
 
 # Launch the Toolbox App
 echo "Launching Toolbox App..."
@@ -31,3 +31,8 @@ echo "Launching Toolbox App..."
 
 # After the first launch, it will be installed at $HOME/.local/share/JetBrains/Toolbox/bin
 echo "Toolbox App installed at $HOME/.local/share/JetBrains/Toolbox/bin"
+
+# Clean up the temporary files
+echo "Cleaning up temporary files..."
+rm -rf /tmp/jetbrains-toolbox-*
+rm /tmp/jetbrains-toolbox.tar.gz
