@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# Define the URL and the output file
+STACHER_URL="https://cdn.stacher.io/builds/Stacher.deb"
+DEB_FILE="/tmp/Stacher.deb"
+
+# Download the .deb file
+echo "Downloading Stacher.deb..."
+if command -v curl &> /dev/null; then
+    curl -L "$STACHER_URL" -o "$DEB_FILE"
+elif command -v wget &> /dev/null; then
+    wget "$STACHER_URL" -O "$DEB_FILE"
+else
+    echo "Error: Neither curl nor wget is installed. Please install one of them and retry."
+    exit 1
+fi
+
+# Check if the file was downloaded
+if [[ ! -f "$DEB_FILE" ]]; then
+    echo "Error: Failed to download Stacher.deb."
+    exit 1
+fi
+echo "Downloaded Stacher.deb to $DEB_FILE."
+
+# Install the .deb file using dpkg
+echo "Installing Stacher..."
+sudo dpkg -i "$DEB_FILE"
+
+# Fix any missing dependencies
+if [[ $? -ne 0 ]]; then
+    echo "Resolving missing dependencies..."
+    sudo apt-get install -f -y
+fi
+
+# Fix permissions for chrome-sandbox
+SANDBOX_PATH="/usr/lib/stacher/chrome-sandbox"
+if [[ -f "$SANDBOX_PATH" ]]; then
+    echo "Fixing permissions for chrome-sandbox..."
+    sudo chown root:root "$SANDBOX_PATH"
+    sudo chmod 4755 "$SANDBOX_PATH"
+    echo "Permissions for chrome-sandbox fixed."
+else
+    echo "Warning: chrome-sandbox not found at $SANDBOX_PATH. Skipping permission fix."
+fi
+
+# Cleanup
+echo "Cleaning up..."
+rm -f "$DEB_FILE"
+
+# Verify installation
+if command -v stacher &> /dev/null; then
+    echo "Stacher installed successfully."
+else
+    echo "Installation failed. Please check for errors and retry."
+fi

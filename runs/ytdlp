@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# Define variables
+YTDLP_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+INSTALL_DIR="$HOME/.local/bin"
+BINARY="$INSTALL_DIR/yt-dlp"
+
+# Ensure the installation directory exists
+echo "Ensuring installation directory exists: $INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
+
+# Download yt-dlp using the best available tool
+echo "Downloading yt-dlp..."
+if command -v curl &> /dev/null; then
+    curl -L "$YTDLP_URL" -o "$BINARY"
+elif command -v wget &> /dev/null; then
+    wget "$YTDLP_URL" -O "$BINARY"
+elif command -v aria2c &> /dev/null; then
+    aria2c "$YTDLP_URL" --dir "$INSTALL_DIR" -o "yt-dlp"
+else
+    echo "Error: No supported download tools found (curl, wget, or aria2c). Please install one and try again."
+    exit 1
+fi
+
+# Ensure the binary is executable
+echo "Making yt-dlp executable..."
+chmod a+rx "$BINARY"
+
+# Add ~/.local/bin to PATH if not already in PATH
+if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+    echo "Adding $INSTALL_DIR to PATH..."
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
+    export PATH="$INSTALL_DIR:$PATH"
+fi
+
+# Verify installation
+if command -v yt-dlp &> /dev/null; then
+    echo "yt-dlp installed successfully."
+    echo "You can update it anytime using 'yt-dlp -U'."
+else
+    echo "Error: yt-dlp installation failed. Please check the script output for details."
+fi
