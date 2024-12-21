@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# Function to check if a command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Ensure Rust is installed
+install_rust() {
+    echo "Installing Rust using rustup..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    export PATH="$HOME/.cargo/bin:$PATH"
+}
+
+# Ensure dependencies are installed based on the OS
+dependency_install() {
+    if command_exists apt; then
+        echo "Installing dependencies for Debian/Ubuntu..."
+        sudo apt update
+        sudo apt install -y pkg-config libssl-dev build-essential
+    elif command_exists yum; then
+        echo "Installing dependencies for RHEL-based distros..."
+        sudo yum install -y libxcb openssl-devel libX11-devel
+    elif command_exists brew; then
+        echo "Installing dependencies for macOS..."
+        brew install openssl cmake
+    else
+        echo "Unsupported package manager. Please install dependencies manually."
+        exit 1
+    fi
+}
+
+# Clone and build Nushell
+build_nushell() {
+    echo "Cloning Nushell repository..."
+    git clone https://github.com/nushell/nushell.git
+    cd nushell || exit
+
+    echo "Building Nushell in release mode..."
+    cargo build --release --workspace
+    echo "Nushell built successfully!"
+
+    cd ..
+}
+
+# Prompt to make Nushell the default shell
+make_default_shell() {
+    echo -n "Do you want to make Nushell the default shell? (y/n): "
+    read -r choice
+    if [[ "$choice" == "y" || "$choice" == "Y" ]]; then
+        echo "Adding Nushell to /etc/shells and setting as default shell..."
+        sudo sh -c 'echo "/usr/local/bin/nu" >> /etc/shells'
+        chsh -s /usr/local/bin/nu
+        echo "Nushell is now your default shell."
+    else
+        echo "Nushell is installed but not set as the default shell."
+    fi
+}
+
+# Main script
+main() {
+    echo "Starting Nushell installation..."
+
+    if ! command_exists rustup; then
+        install_rust
+    fi
+
+    dependency_install
+
+    if ! command_exists cargo; then
+        echo "Cargo is not available. Please ensure Rust is properly installed."
+        exit 1
+    fi
+
+    build_nushell
+
+    echo "Installation complete. Adding nushell binary to PATH..."
+    sudo mv nushell/target/release/nu /usr/local/bin/nu
+    rm -rf nushell
+
+    make_default_shell
+
+    echo "Nushell installation finished!"
+}
+
+main

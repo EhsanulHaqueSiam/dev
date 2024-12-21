@@ -1,0 +1,4 @@
+#!/bin/bash
+
+# Install TickTick using Snap
+sudo snap install ticktick

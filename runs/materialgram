@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# Ensure script is run with sudo privileges
+if [ "$(id -u)" -ne 0 ]; then
+    echo "This script must be run as root (use sudo)."
+    exit 1
+fi
+
+# Set directories
+DOWNLOAD_DIR="$HOME/Downloads"
+INSTALL_DIR="/opt/materialgram"
+TAR_FILE="$DOWNLOAD_DIR/materialgram-latest.tar.gz"
+
+# Fetch the latest release from GitHub API
+LATEST_URL=$(curl -s https://api.github.com/repos/kukuruzka165/materialgram/releases/latest | jq -r .tarball_url)
+
+# Download the latest version
+echo "Downloading latest Materialgram version..."
+curl -L "$LATEST_URL" -o "$TAR_FILE"
+
+# Extract the tarball
+echo "Extracting Materialgram..."
+tar -xvzf "$TAR_FILE" -C "$DOWNLOAD_DIR"
+
+# Move extracted files to /opt
+echo "Installing Materialgram to $INSTALL_DIR..."
+mkdir -p "$INSTALL_DIR"
+mv "$DOWNLOAD_DIR/materialgram-"*/* "$INSTALL_DIR/"
+
+# Create symlinks for executable in /usr/local/bin
+echo "Creating symlink for Materialgram executable..."
+ln -s "$INSTALL_DIR/usr/bin/materialgram" /usr/local/bin/materialgram
+
+# Move .desktop and service files
+echo "Setting up desktop entries and services..."
+
+# Copy .desktop file to applications directory
+desktop_file="$INSTALL_DIR/usr/share/applications/io.github.kukuruzka165.materialgram.desktop"
+cp "$desktop_file" /usr/share/applications/
+
+# Copy service file to dbus services directory
+service_file="$INSTALL_DIR/usr/share/dbus-1/services/io.github.kukuruzka165.materialgram.service"
+cp "$service_file" /usr/share/dbus-1/services/
+
+# Copy icons to the appropriate directory
+echo "Copying icons..."
+mkdir -p /usr/share/icons/hicolor
+cp -r "$INSTALL_DIR/usr/share/icons/hicolor" /usr/share/icons/
+
+# Copy metainfo file
+metainfo_file="$INSTALL_DIR/usr/share/metainfo/io.github.kukuruzka165.materialgram.metainfo.xml"
+cp "$metainfo_file" /usr/share/metainfo/
+
+# Clean up downloaded tarball and extracted files
+echo "Cleaning up..."
+rm -rf "$TAR_FILE" "$DOWNLOAD_DIR/materialgram-"*
+
+# Refresh icon cache and update the application database
+echo "Updating icon cache and application database..."
+update-icon-caches /usr/share/icons/hicolor
+update-desktop-database
+
+# Installation complete
+echo "Materialgram installation is complete!"
