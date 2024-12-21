@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Set the download URL for the latest Telegram version
+TELEGRAM_URL="https://telegram.org/dl/desktop/linux"
+
+# Set the download directory
+DOWNLOAD_DIR="$HOME/Downloads"
+
+# Change to the download directory
+cd "$DOWNLOAD_DIR" || exit
+
+# Download the latest version of Telegram
+echo "Downloading Telegram..."
+wget -q --show-progress "$TELEGRAM_URL" -O tsetup.tar.xz
+
+# Extract the downloaded tar.xz file
+echo "Extracting Telegram..."
+tar -xf tsetup.tar.xz
+
+# Move Telegram to /opt for system-wide installation (optional)
+echo "Installing Telegram to /opt..."
+sudo mv Telegram /opt/Telegram
+
+# Create a symbolic link to /usr/local/bin for easy access
+echo "Creating symbolic link..."
+sudo ln -sf /opt/Telegram/Telegram /usr/local/bin/telegram
+
+# Clean up the downloaded tar.xz file
+rm tsetup.tar.xz
+
+# Done
+echo "Telegram installation completed. You can now run it by typing 'telegram' in the terminal."
