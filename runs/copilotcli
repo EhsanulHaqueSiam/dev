@@ -27,3 +27,9 @@ rm -rf "$TEMP_DIR"
 
 # Confirm installation
 echo "GitHub CLI has been installed successfully."
+
+# Echo the commands you want to see but not execute
+echo "To login with GitHub CLI: gh auth login"
+echo "To install GitHub Copilot extension: gh extension install github/gh-copilot"
+echo "To explain a command with GitHub Copilot: gh copilot explain 'sudo apt-get'"
+echo "To suggest a command with GitHub Copilot: gh copilot suggest 'Undo the last commit'"
