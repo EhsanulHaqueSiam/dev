@@ -44,7 +44,7 @@ fi
 
 # Build Ghostty
 cd $GHOSTTY_DIR
-zig build -p $INSTALL_DIR
+zig build -p $INSTALL_DIR -Doptimize=ReleaseFast
 cd ..
 
 # Add Ghostty to PATH
