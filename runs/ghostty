@@ -9,6 +9,7 @@ GHOSTTY_DIR="ghostty"
 ZIG_VERSION="0.13.0"
 ZIG_DOWNLOAD_URL="https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz"
 ZIG_INSTALL_DIR="$HOME/.local/zig"
+ZIG_TAR_FILE="zig-linux-x86_64-${ZIG_VERSION}.tar.xz"
 
 # Update and install dependencies
 sudo apt update
@@ -18,7 +19,8 @@ sudo apt install -y libgtk-4-dev libadwaita-1-dev git curl xz-utils jq build-ess
 if [ ! -d "$ZIG_INSTALL_DIR" ]; then
   echo "Installing Zig $ZIG_VERSION..."
   mkdir -p "$ZIG_INSTALL_DIR"
-  curl -L $ZIG_DOWNLOAD_URL | tar -xJ --strip-components=1 -C "$ZIG_INSTALL_DIR"
+  curl -L $ZIG_DOWNLOAD_URL -o $ZIG_TAR_FILE
+  tar -xJ --strip-components=1 -C "$ZIG_INSTALL_DIR" -f $ZIG_TAR_FILE
 else
   echo "Zig is already installed in $ZIG_INSTALL_DIR."
 fi
@@ -65,6 +67,11 @@ cat <<EOF >> $HOME/.zshrc
 # Ghostty alias
 alias ghostty="$INSTALL_DIR/bin/ghostty"
 EOF
+
+# Cleanup
+echo "Cleaning up..."
+rm -rf "$GHOSTTY_DIR"
+rm -f "$ZIG_TAR_FILE"
 
 # Completion Message
 echo "Ghostty installation complete! Run 'ghostty' from your terminal to start."
