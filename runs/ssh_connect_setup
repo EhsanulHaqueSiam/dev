@@ -1,64 +1,164 @@
 #!/bin/bash
 
-# Update package list and install OpenSSH Server
-sudo apt update
-sudo apt install -y openssh-server
+# =============================
+# SSH Server Setup Script
+# =============================
 
-# Enable and start SSH service
+# Function to print a separator for clear output
+print_separator() {
+    echo -e "\n====================================="
+}
+
+# Function to check if a command exists
+command_exists() {
+    command -v "$1" &>/dev/null
+}
+
+# ============================
+# Welcome Message
+# ============================
+
+echo -e "\nWelcome to the SSH Server Setup Script!"
+print_separator
+echo "This script will help you set up OpenSSH server, generate an SSH key pair, and configure your firewall."
+echo "Let's get started!"
+print_separator
+
+# ============================
+# Update and Install Packages
+# ============================
+
+echo "Step 1: Updating package list and installing OpenSSH Server..."
+sudo apt update
+sudo apt install -y openssh-server ufw curl
+
+# ============================
+# Enable and Start SSH Service
+# ============================
+
+echo "Step 2: Enabling and starting SSH service..."
 sudo systemctl enable ssh
 sudo systemctl start ssh
 
-# Allow SSH through the firewall
-sudo ufw allow ssh
+# ============================
+# Firewall Configuration (Optional)
+# ============================
 
-# Display SSH service status
-sudo systemctl status ssh
+read -p "Do you want to allow SSH through the firewall? (y/n): " firewall_choice
+if [[ "$firewall_choice" =~ ^[Yy]$ ]]; then
+    echo "Allowing SSH through the firewall..."
+    sudo ufw allow ssh
+    sudo ufw enable
+    echo "Firewall is configured to allow SSH connections."
+else
+    echo "Skipping firewall configuration."
+fi
 
-# Get the current username
+# ============================
+# SSH Service Status Check
+# ============================
+
+print_separator
+echo "Step 3: Checking SSH service status..."
+sudo systemctl status ssh --no-pager
+echo -e "\nNote: The status should show 'active (running)' if everything is set up correctly."
+
+# ============================
+# Display Connection Details
+# ============================
+
 USERNAME=$(whoami)
-
-# Display IP addresses for connection
 LOCAL_IP=$(hostname -I | awk '{print $1}')
 GLOBAL_IP=$(curl -s ifconfig.me)
-echo "SSH Server is up and running!"
-echo "Local Network: ssh $USERNAME@$LOCAL_IP"
-echo "Global Network: ssh $USERNAME@$GLOBAL_IP"
 
-# Optional: Print current SSH configuration file path
-echo "SSH Configuration File: /etc/ssh/sshd_config"
+print_separator
+echo "Step 4: SSH Server is up and running!"
+echo "You can now connect to your server using the following commands:"
+echo "   Local Network:  ssh $USERNAME@$LOCAL_IP"
+echo "   Global Network: ssh $USERNAME@$GLOBAL_IP"
+echo -e "====================================="
 
-# Ask for email and passphrase to generate SSH key
-read -p "Enter your Gmail address: " EMAIL
-read -sp "Enter passphrase for SSH key (leave empty for no passphrase): " PASSPHRASE
+# ============================
+# SSH Configuration File Path
+# ============================
 
-# Define the SSH key path
+echo "SSH Configuration File Path: /etc/ssh/sshd_config"
+echo "You may modify this file to configure advanced SSH settings if needed."
+print_separator
+
+# ============================
+# Generate SSH Key Pair (if not present)
+# ============================
+
 KEY_PATH="$HOME/.ssh/id_rsa_gmail"
 
-# Check if the SSH key already exists
 if [ -f "$KEY_PATH" ]; then
-    echo "SSH key already exists at $KEY_PATH"
+    echo -e "\nStep 5: SSH key already exists at $KEY_PATH"
 else
+    echo -e "\nStep 5: No SSH key found. Let's generate a new SSH key pair..."
+
+    # Ask for Gmail and passphrase to generate SSH key
+    read -p "Enter your Gmail address for the SSH key comment: " EMAIL
+    read -sp "Enter passphrase for SSH key (leave empty for no passphrase): " PASSPHRASE
+    echo # Move to the next line after passphrase input
+
     # Generate a new SSH key pair
     ssh-keygen -t rsa -b 4096 -f "$KEY_PATH" -N "$PASSPHRASE" -C "$EMAIL"
-    echo "SSH key generated at $KEY_PATH for $EMAIL"
+    echo -e "\nSSH key generated at $KEY_PATH for $EMAIL"
 fi
 
 # Display the public key
-echo "Public key contents:"
+echo -e "\nStep 6: Your public key is:"
 cat "$KEY_PATH.pub"
 
-# Copy the public key to the clipboard
-if command -v xclip &> /dev/null; then
+# ============================
+# Copy Public Key to Clipboard
+# ============================
+
+if command_exists xclip; then
     xclip -selection clipboard < "$KEY_PATH.pub"
     echo "Public key copied to clipboard using xclip."
-elif command -v xsel &> /dev/null; then
+elif command_exists xsel; then
     xsel --clipboard < "$KEY_PATH.pub"
     echo "Public key copied to clipboard using xsel."
 else
     echo "Neither xclip nor xsel found. Please install one of them to enable clipboard support."
 fi
 
-# Restart SSH service to apply any changes
+# ============================
+# Restart SSH Service
+# ============================
+
+echo "Step 7: Restarting SSH service to apply changes..."
 sudo systemctl restart ssh
 
-echo "Setup complete! Ready to accept SSH connections."
+# ============================
+# Router Configuration Instructions
+# ============================
+
+print_separator
+echo "Router Configuration Instructions:"
+echo "1. Log in to your router settings (usually at http://192.168.0.1 or http://192.168.1.1)."
+echo "2. Go to Advanced Settings > NAT Forwarding > Virtual Servers."
+echo "3. Add a new port forwarding rule as follows:"
+echo "   - Service Name: SSH"
+echo "   - Internal IP: $LOCAL_IP"
+echo "   - Internal Port: 22"
+echo "   - External Port: 22 (or custom, e.g., 2222)"
+echo "   - Protocol: TCP"
+echo "4. Save the settings and enable the rule."
+echo "5. Test the connection using the following:"
+echo "   - Local: ssh $USERNAME@$LOCAL_IP"
+echo "   - Global: ssh $USERNAME@$GLOBAL_IP (ensure the external port is set up correctly)"
+echo "   - For custom external ports (e.g., 2222), use: ssh $USERNAME@$GLOBAL_IP -p 2222"
+echo "6. For multiple devices, repeat the steps with different ports (e.g., 2223)."
+print_separator
+
+# ============================
+# Final Message
+# ============================
+
+echo -e "\nStep 8: Setup complete! Your SSH server is now ready to accept SSH connections."
+echo "You can connect to your server locally or globally (if port forwarding is configured)."
+echo "Enjoy your secure remote access!"
+print_separator
