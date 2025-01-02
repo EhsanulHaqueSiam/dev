@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# Update package list and install OpenSSH Server
+sudo apt update
+sudo apt install -y openssh-server
+
+# Enable and start SSH service
+sudo systemctl enable ssh
+sudo systemctl start ssh
+
+# Allow SSH through the firewall
+sudo ufw allow ssh
+
+# Display SSH service status
+sudo systemctl status ssh
+
+# Get the current username
+USERNAME=$(whoami)
+
+# Display IP addresses for connection
+LOCAL_IP=$(hostname -I | awk '{print $1}')
+GLOBAL_IP=$(curl -s ifconfig.me)
+echo "SSH Server is up and running!"
+echo "Local Network: ssh $USERNAME@$LOCAL_IP"
+echo "Global Network: ssh $USERNAME@$GLOBAL_IP"
+
+# Optional: Print current SSH configuration file path
+echo "SSH Configuration File: /etc/ssh/sshd_config"
+
+# Ask for email and passphrase to generate SSH key
+read -p "Enter your Gmail address: " EMAIL
+read -sp "Enter passphrase for SSH key (leave empty for no passphrase): " PASSPHRASE
+
+# Define the SSH key path
+KEY_PATH="$HOME/.ssh/id_rsa_gmail"
+
+# Check if the SSH key already exists
+if [ -f "$KEY_PATH" ]; then
+    echo "SSH key already exists at $KEY_PATH"
+else
+    # Generate a new SSH key pair
+    ssh-keygen -t rsa -b 4096 -f "$KEY_PATH" -N "$PASSPHRASE" -C "$EMAIL"
+    echo "SSH key generated at $KEY_PATH for $EMAIL"
+fi
+
+# Display the public key
+echo "Public key contents:"
+cat "$KEY_PATH.pub"
+
+# Copy the public key to the clipboard
+if command -v xclip &> /dev/null; then
+    xclip -selection clipboard < "$KEY_PATH.pub"
+    echo "Public key copied to clipboard using xclip."
+elif command -v xsel &> /dev/null; then
+    xsel --clipboard < "$KEY_PATH.pub"
+    echo "Public key copied to clipboard using xsel."
+else
+    echo "Neither xclip nor xsel found. Please install one of them to enable clipboard support."
+fi
+
+# Restart SSH service to apply any changes
+sudo systemctl restart ssh
+
+echo "Setup complete! Ready to accept SSH connections."
