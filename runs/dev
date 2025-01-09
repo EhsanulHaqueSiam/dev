@@ -9,10 +9,10 @@ echo "Installing Rust..."
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 
-# Install Node.js
-echo "Installing Node.js..."
-curl -fsSL https://deb.nodesource.com/setup_current.x | sudo -E bash -
-sudo apt install -y nodejs
+# # Install Node.js
+# echo "Installing Node.js..."
+# curl -fsSL https://deb.nodesource.com/setup_current.x | sudo -E bash -
+# sudo apt install -y nodejs
 
 # Install Go
 echo "Installing Go..."
@@ -50,7 +50,7 @@ echo 'source "$HOME/.sdkman/bin/sdkman-init.sh"' >> ~/.bashrc
 # echo 'source "$HOME/.sdkman/bin/sdkman-init.sh"' >> ~/.zshrc
 
 # Node.js (if installed globally via apt)
-echo "export PATH=\$PATH:/usr/bin/node" >> ~/.bashrc
+# echo "export PATH=\$PATH:/usr/bin/node" >> ~/.bashrc
 # echo "export PATH=\$PATH:/usr/bin/node" >> ~/.zshrc
 
 # Python (if installed via apt)
@@ -64,7 +64,7 @@ source ~/.zshrc
 # Print installed versions
 echo "Installation complete! Versions:"
 rustc --version
-node --version
+# node --version
 go version
 python3 --version
 java -version

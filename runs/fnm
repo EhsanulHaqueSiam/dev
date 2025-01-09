@@ -1,8 +1,13 @@
 #!/bin/bash
 
-# Install fnm
-echo "Installing fnm..."
-curl -fsSL https://fnm.vercel.app/install | bash
+# Check if fnm is installed
+if command -v fnm &>/dev/null; then
+  echo "fnm is already installed. Updating fnm..."
+  curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell
+else
+  echo "Installing fnm..."
+  curl -fsSL https://fnm.vercel.app/install | bash
+fi
 
 # Check for existing .bashrc or .zshrc
 SHELL_CONFIG=""
@@ -15,13 +20,8 @@ else
   exit 1
 fi
 
-# # Set up fnm for the current shell
-# echo "Setting up fnm in $SHELL_CONFIG..."
-# if [[ "$SHELL_CONFIG" == "$HOME/.bashrc" ]]; then
-  echo 'eval "$(fnm env --use-on-cd --shell bash)"' >> "$SHELL_CONFIG"
-# else
-#   echo 'eval "$(fnm env --use-on-cd --shell zsh)"' >> "$SHELL_CONFIG"
-# fi
+# Set up fnm for the current shell
+# echo 'eval "$(fnm env --use-on-cd --shell bash)"' >> "$SHELL_CONFIG"
 
 # Source the shell configuration to apply changes
 source "$SHELL_CONFIG"
