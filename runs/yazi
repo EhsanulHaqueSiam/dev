@@ -33,6 +33,11 @@ if ! command -v yazi &> /dev/null; then
     echo "Moving binaries to /usr/local/bin..."
     sudo mv target/release/yazi target/release/ya /usr/local/bin/
 
+    # Clean up git clone folder
+    echo "Cleaning up Yazi repository folder..."
+    cd ..
+    rm -rf yazi
+
     echo "Yazi installation complete."
 
 else
