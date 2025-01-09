@@ -49,3 +49,6 @@ echo "Miniconda installation complete!"
 
 echo "auto_activate_base: true"
 conda config --set auto_activate_base True
+
+echo "conda init --reverse bash for bash hashing problem"
+conda init --reverse bash
