@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# Install fnm
+echo "Installing fnm..."
+curl -fsSL https://fnm.vercel.app/install | bash
+
+# Check for existing .bashrc or .zshrc
+SHELL_CONFIG=""
+if [[ -f "$HOME/.bashrc" ]]; then
+  SHELL_CONFIG="$HOME/.bashrc"
+elif [[ -f "$HOME/.zshrc" ]]; then
+  SHELL_CONFIG="$HOME/.zshrc"
+else
+  echo "No shell configuration file found!"
+  exit 1
+fi
+
+# # Set up fnm for the current shell
+# echo "Setting up fnm in $SHELL_CONFIG..."
+# if [[ "$SHELL_CONFIG" == "$HOME/.bashrc" ]]; then
+  echo 'eval "$(fnm env --use-on-cd --shell bash)"' >> "$SHELL_CONFIG"
+# else
+#   echo 'eval "$(fnm env --use-on-cd --shell zsh)"' >> "$SHELL_CONFIG"
+# fi
+
+# Source the shell configuration to apply changes
+source "$SHELL_CONFIG"
+
+# Get the latest Node.js version from fnm list-remote
+LATEST_NODE_VERSION=$(fnm list-remote | tail -n 1 | awk '{print $1}')
+
+# Install the latest Node.js version using fnm
+echo "Installing Node.js $LATEST_NODE_VERSION using fnm..."
+fnm install "$LATEST_NODE_VERSION"
+
+# Set the latest Node.js version as the default
+fnm default "$LATEST_NODE_VERSION"
+
+# Verify the installation
+echo "Node.js version:"
+node -v
+echo "fnm version:"
+fnm --version
+
+echo "Installation complete!"
