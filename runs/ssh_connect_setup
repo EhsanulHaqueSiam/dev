@@ -152,6 +152,10 @@ echo "   - Local: ssh $USERNAME@$LOCAL_IP"
 echo "   - Global: ssh $USERNAME@$GLOBAL_IP (ensure the external port is set up correctly)"
 echo "   - For custom external ports (e.g., 2222), use: ssh $USERNAME@$GLOBAL_IP -p 2222"
 echo "6. For multiple devices, repeat the steps with different ports (e.g., 2223)."
+echo "For Allowing a port through UFW, use the following commands:"
+echo "sudo ufw allow 9999"
+echo "sudo ufw reload"
+
 print_separator
 
 # ============================

@@ -1,0 +1,76 @@
+#!/bin/bash
+
+# Update the package manager and install necessary dependencies for GUI packages
+echo "Installing dependencies for Anaconda Navigator (if applicable)..."
+if [ -f /etc/debian_version ]; then
+    # Debian-based distributions
+    sudo apt-get update
+    sudo apt-get install -y libgl1-mesa-glx libegl1-mesa libxrandr2 libxss1 libxcursor1 libxcomposite1 libasound2 libxi6 libxtst6
+elif [ -f /etc/redhat-release ]; then
+    # RedHat-based distributions
+    sudo yum install -y libglvnd libX11 libXrandr libXScrnSaver libXcomposite libXcursor alsa-lib libXi libXtst
+elif [ -f /etc/os-release ]; then
+    # Other Linux distros (like ArchLinux, OpenSuse, Gentoo, etc.)
+    DISTRO=$(grep '^ID=' /etc/os-release | cut -d'=' -f2)
+    case $DISTRO in
+        "arch")
+            sudo pacman -S --noconfirm libglvnd libxrandr libxss libxcursor libxcomposite alsa-lib libxi libxtst
+            ;;
+        "sles" | "opensuse")
+            sudo zypper install -y libGL libXrandr libXScrnSaver libXcomposite libXcursor alsa-lib libXi libXtst
+            ;;
+        "gentoo")
+            sudo emerge --ask libglvnd xrandr libXScrnSaver xcursor xcomposite alsa-lib libXi libXtst
+            ;;
+        *)
+            echo "Unsupported distribution for automatic dependencies installation."
+            ;;
+    esac
+fi
+
+# Download the latest version of Anaconda (Linux x86_64)
+echo "Downloading Anaconda..."
+curl -O https://repo.anaconda.com/archive/Anaconda3-2024.10-1-Linux-x86_64.sh
+
+# Set execute permissions on the downloaded installer
+chmod +x Anaconda3-2024.10-1-Linux-x86_64.sh
+
+# Run the Anaconda installer
+echo "Installing Anaconda..."
+bash ~/Anaconda3-2024.10-1-Linux-x86_64.sh -b
+
+# Initialize conda for the shell
+echo "Initializing conda..."
+source ~/anaconda3/bin/activate
+
+# Optionally activate base environment by default (set to 'True' if desired)
+echo "Setting conda base environment to activate by default..."
+conda config --set auto_activate_base True
+
+# Initialize conda for Zsh (if Zsh is being used)
+if [ -n "$ZSH_VERSION" ]; then
+    echo "Initializing conda for Zsh..."
+    echo "source ~/anaconda3/etc/profile.d/conda.sh" >> ~/.zshrc
+    source ~/.zshrc
+fi
+
+# Initialize conda for Bash (if Bash is being used)
+if [ -n "$BASH_VERSION" ]; then
+    echo "Initializing conda for Bash..."
+    echo "source ~/anaconda3/etc/profile.d/conda.sh" >> ~/.bashrc
+    source ~/.bashrc
+fi
+
+# Clean up the downloaded installer
+echo "Cleaning up..."
+rm Anaconda3-2024.10-1-Linux-x86_64.sh
+
+# Source the shell configuration to apply changes
+echo "Refreshing the shell configuration..."
+if [ -n "$BASH_VERSION" ]; then
+    source ~/.bashrc
+elif [ -n "$ZSH_VERSION" ]; then
+    source ~/.zshrc
+fi
+
+echo "Anaconda installation completed successfully!"

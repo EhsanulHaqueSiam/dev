@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# Miniconda Installation Script for Zsh on Ubuntu
+# This script installs Miniconda and cleans up the installer file afterward.
+
+# Detect system architecture
+ARCH=$(uname -m)
+
+# Determine the correct Miniconda installer URL based on architecture
+if [ "$ARCH" == "x86_64" ]; then
+    INSTALLER_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+elif [ "$ARCH" == "aarch64" ]; then
+    INSTALLER_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh"
+elif [ "$ARCH" == "s390x" ]; then
+    INSTALLER_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-s390x.sh"
+else
+    echo "Unsupported architecture: $ARCH"
+    exit 1
+fi
+
+# Download the Miniconda installer
+echo "Downloading Miniconda installer for $ARCH..."
+curl -O $INSTALLER_URL
+
+# Run the installer
+INSTALLER_FILE=$(basename $INSTALLER_URL)
+echo "Running the Miniconda installer..."
+bash $INSTALLER_FILE -b -p $HOME/miniconda3
+
+# Initialize conda for zsh
+echo "Initializing conda for zsh..."
+source $HOME/miniconda3/bin/activate
+conda init zsh
+
+# Clean up the installer file
+echo "Cleaning up the installer file..."
+rm -f $INSTALLER_FILE
+
+# Reload the zsh configuration
+echo "Reloading zsh configuration..."
+source ~/.zshrc
+
+# Test the installation
+echo "Testing Miniconda installation..."
+conda list
+
+# Completion message
+echo "Miniconda installation complete!"
+
+echo "auto_activate_base: true"
+conda config --set auto_activate_base True

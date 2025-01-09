@@ -29,5 +29,7 @@ echo "  * * * * * /path/to/command"
 echo -e "\nEach field represents:\n  - Minute (0-59)\n  - Hour (0-23)\n  - Day of the month (1-31)\n  - Month (1-12)\n  - Day of the week (0-6, where 0 = Sunday)"
 echo -e "\nExample to run a script every day at 3 AM:\n"
 echo "  0 3 * * * /path/to/script.sh"
+echo "To run on restart and in background and with no log:\n"
+echo "@reboot /path/to/script.sh >/dev/null 2>&1 &"
 
 echo "\nTo view scheduled cron jobs, use:\n  crontab -l"
