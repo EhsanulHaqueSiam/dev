@@ -1,44 +1,40 @@
 #!/bin/bash
 
-# Function to check if a command is available
-command_exists() {
-  command -v "$1" &>/dev/null
-}
+# Update package list and install optional dependencies
+echo "Installing optional dependencies..."
+sudo apt update
+sudo apt install -y ffmpeg 7zip jq poppler-utils fd-find ripgrep zoxide imagemagick
 
-# Install Rust if not installed
-if ! command_exists rustup; then
-  echo "Rust not found, installing Rust..."
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-  rustup update
+# Check if Yazi is already installed
+if ! command -v yazi &> /dev/null; then
+    echo "Yazi not found. Proceeding with manual build."
+
+    # Install Rust toolchain if it's not installed
+    if ! command -v rustc &> /dev/null; then
+        echo "Rust toolchain not found. Installing Rust..."
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+        source $HOME/.cargo/env
+    else
+        echo "Rust toolchain found."
+    fi
+
+    # Update Rust toolchain
+    rustup update
+
+    # Clone the Yazi repository and build from source
+    echo "Cloning Yazi repository..."
+    git clone https://github.com/sxyazi/yazi.git
+    cd yazi
+
+    echo "Building Yazi..."
+    cargo build --release --locked
+
+    # Move built binaries to /usr/local/bin
+    echo "Moving binaries to /usr/local/bin..."
+    sudo mv target/release/yazi target/release/ya /usr/local/bin/
+
+    echo "Yazi installation complete."
+
 else
-  echo "Rust is already installed."
+    echo "Yazi is already installed."
 fi
-
-# Install Yazi if not installed
-if ! command_exists yazi-cli; then
-  echo "Yazi not found, installing Yazi..."
-  cargo install --locked yazi-fm yazi-cli
-else
-  echo "Yazi is already installed."
-fi
-
-# Install tools if not installed
-tools=("ffmpeg" "7z" "jq" "poppler-utils" "fd-find" "ripgrep" "zoxide" "imagemagick" "xclip")
-
-for tool in "${tools[@]}"; do
-  if ! command_exists $tool; then
-    echo "$tool not found, installing..."
-    case $tool in
-      "7z") sudo apt install p7zip-full p7zip-rar ;;
-      "poppler-utils") sudo apt install poppler-utils ;;
-      "fd-find") sudo apt install fd-find ;;
-      "ripgrep") sudo apt install ripgrep ;;
-      "zoxide") sudo apt install zoxide ;;
-      "imagemagick") sudo apt install imagemagick ;;
-      "xclip") sudo apt install xclip ;;
-      *) sudo apt install $tool ;;
-    esac
-  else
-    echo "$tool is already installed."
-  fi
-done

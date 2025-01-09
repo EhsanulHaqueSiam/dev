@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Detect system architecture
+ARCH=$(dpkg --print-architecture)
+
+# Set the version of bat to be downloaded
+VERSION="0.25.0"
+
+# URL for downloading the .deb package
+URL="https://github.com/sharkdp/bat/releases/download/v${VERSION}/bat_${VERSION}_${ARCH}.deb"
+
+# Download the .deb package
+echo "Downloading bat_${VERSION}_${ARCH}.deb..."
+wget -q "$URL" -O bat_${VERSION}_${ARCH}.deb
+
+# Check if the download was successful
+if [[ -f "bat_${VERSION}_${ARCH}.deb" ]]; then
+    echo "Download successful, installing package..."
+    # Install the downloaded .deb package
+    sudo dpkg -i bat_${VERSION}_${ARCH}.deb
+    # Clean up the .deb file after installation
+    rm bat_${VERSION}_${ARCH}.deb
+    echo "Installation complete!"
+else
+    echo "Failed to download the package."
+fi

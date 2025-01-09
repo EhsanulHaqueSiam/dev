@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+rm -rf ~/.config/nvim
+
 version="v0.10.2"
 if [ ! -z $NVIM_VERSION ]; then
     version="$NVIM_VERSION"

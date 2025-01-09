@@ -1,77 +1,23 @@
 #!/bin/bash
 
-set -e  # Exit immediately if a command exits with a non-zero status.
+# Download the .deb package
+curl -LO https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.0.1-0-ppa2/ghostty_1.0.1-0.ppa2_amd64_22.04.deb
 
-# Variables
-INSTALL_DIR="$HOME/.local"
-GHOSTTY_REPO="https://github.com/ghostty-org/ghostty.git"
-GHOSTTY_DIR="ghostty"
-ZIG_VERSION="0.13.0"
-ZIG_DOWNLOAD_URL="https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz"
-ZIG_INSTALL_DIR="$HOME/.local/zig"
-ZIG_TAR_FILE="zig-linux-x86_64-${ZIG_VERSION}.tar.xz"
+# Check if the file was downloaded successfully
+if [ ! -f ghostty_1.0.1-0.ppa2_amd64_22.04.deb ]; then
+    echo "Error: .deb file download failed!"
+    exit 1
+fi
 
-# Update and install dependencies
-sudo apt update
-sudo apt install -y libgtk-4-dev libadwaita-1-dev git curl xz-utils jq build-essential
+# Install the .deb package
+sudo dpkg -i ghostty_1.0.1-0.ppa2_amd64_22.04.deb
 
-# Install Zig
-if [ ! -d "$ZIG_INSTALL_DIR" ]; then
-  echo "Installing Zig $ZIG_VERSION..."
-  mkdir -p "$ZIG_INSTALL_DIR"
-  curl -L $ZIG_DOWNLOAD_URL -o $ZIG_TAR_FILE
-  tar -xJ --strip-components=1 -C "$ZIG_INSTALL_DIR" -f $ZIG_TAR_FILE
+# Handle any missing dependencies
+sudo apt-get install -f -y
+
+# Check if the installation was successful
+if [ $? -eq 0 ]; then
+    echo "Installation successful!"
 else
-  echo "Zig is already installed in $ZIG_INSTALL_DIR."
+    echo "Installation failed!"
 fi
-
-export PATH="$ZIG_INSTALL_DIR/bin:$PATH"
-
-# Verify Zig version
-if ! zig version | grep -q "$ZIG_VERSION"; then
-  echo "Zig version mismatch. Expected $ZIG_VERSION. Aborting."
-  exit 1
-fi
-
-# Clone Ghostty repository
-if [ ! -d "$GHOSTTY_DIR" ]; then
-  echo "Cloning Ghostty repository..."
-  git clone $GHOSTTY_REPO
-else
-  echo "Ghostty repository already exists. Pulling latest changes..."
-  cd $GHOSTTY_DIR
-  git pull
-  cd ..
-fi
-
-# Build Ghostty
-cd $GHOSTTY_DIR
-zig build -p $INSTALL_DIR -Doptimize=ReleaseFast
-cd ..
-
-# Add Ghostty to PATH
-if [[ ":$PATH:" != *":$INSTALL_DIR/bin:"* ]]; then
-  echo "export PATH=\"$INSTALL_DIR/bin:\$PATH\"" >> $HOME/.bashrc
-  echo "export PATH=\"$INSTALL_DIR/bin:\$PATH\"" >> $HOME/.zshrc
-  source $HOME/.bashrc
-  source $HOME/.zshrc
-fi
-
-# Set default shell configurations
-cat <<EOF >> $HOME/.bashrc
-# Ghostty alias
-alias ghostty="$INSTALL_DIR/bin/ghostty"
-EOF
-
-cat <<EOF >> $HOME/.zshrc
-# Ghostty alias
-alias ghostty="$INSTALL_DIR/bin/ghostty"
-EOF
-
-# Cleanup
-echo "Cleaning up..."
-rm -rf "$GHOSTTY_DIR"
-rm -f "$ZIG_TAR_FILE"
-
-# Completion Message
-echo "Ghostty installation complete! Run 'ghostty' from your terminal to start."
