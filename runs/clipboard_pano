@@ -1,5 +1,8 @@
 #!/bin/bash
 
+sudo apt install gir1.2-gda-5.0 gir1.2-gsound-1.0
+
+
 # Define variables
 URL="https://github.com/oae/gnome-shell-pano/releases/download/v23-alpha3/pano@elhan.io.zip"
 ZIP_FILE="pano@elhan.io.zip"
