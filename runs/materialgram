@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Set variables
-URL="https://github.com/kukuruzka165/materialgram/releases/download/v5.9.0.1/materialgram-v5.9.0.1.tar.gz"
-FILENAME="materialgram-v5.9.0.1.tar.gz"
+URL="https://github.com/kukuruzka165/materialgram/releases/download/v5.10.3.1/materialgram-v5.10.3.1.tar.gz"
+FILENAME="materialgram-v5.10.3.1.tar.gz"
 TEMP_DIR="/tmp/materialgram-install"
 INSTALL_DIR="/usr/local"
 
