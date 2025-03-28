@@ -4,11 +4,11 @@ set -e  # Exit immediately if a command exits with a non-zero status
 
 echo "Installing dependencies and multimedia libraries..."
 
-# Update and install basic tools
+# Update and install essential tools
 sudo apt update
 sudo apt install -y \
   git gcc g++ make yasm meson ninja-build \
-  python3 python3-pip python3-setuptools \
+  python3 python3-pip python3-setuptools pkg-config \
   libx11-dev libxext-dev libxinerama-dev libxrandr-dev \
   libasound2-dev libpulse-dev libwayland-dev \
   libfreetype-dev libfribidi-dev libfontconfig1-dev \
@@ -50,50 +50,27 @@ cd mpv-build
 
 # Configure ffmpeg
 echo "Configuring ffmpeg with additional options..."
-printf "%s\n" \
-  --enable-libx264 \
-  --enable-libmp3lame \
-  --enable-libfdk-aac \
-  --enable-libvpx \
-  --enable-libopus \
-  --enable-libtheora \
-  --enable-libbluray \
-  --enable-libzimg \
-  --enable-libass \
-  --enable-nonfree \
-  --enable-lcms \
-  --enable-libdovi \
-  --enable-shaderc \
-  --enable-vulkan \
-  --enable-xxhash \
-  >> ffmpeg_options
+cat <<EOF > ffmpeg_options
+--enable-libx264
+--enable-libmp3lame
+--enable-libfdk-aac
+--enable-libbluray
+--enable-libzimg
+--enable-libass
+EOF
 
 # Configure mpv
 echo "Configuring mpv with libmpv and Lua support..."
-printf "%s\n" \
-  -Dlibmpv=true \
-  -Dlua=enabled \
-  -Djavascript=enabled \
-  -Dopengl-cb=enabled \
-  -Dvulkan=enabled \
-  -Ddovi=enabled \
-  -Dbuildtype=release \
-  -Doptimization=3 \
-  -Duchardet=enabled \
-  -Dv4l2=enabled \
-  -Dbluray=enabled \
-  -Dhardwaredec=auto \
-  -Dvaapi=enabled \
-  -Dvdpau=enabled \
-  -Dnvdec=enabled \
-  -Dcuda-hwaccel=enabled \
-  -Dgl-proc-addr=enabled \
-  -Dglslang=enabled \
-  -Dlcms=enabled \
-  -Dlibdovi=enabled \
-  -Dshaderc=enabled \
-  -Dxxhash=enabled \
-  >> mpv_options
+cat <<EOF > mpv_options
+-Dlibmpv=true
+-Dlua=enabled
+-Djavascript=enabled
+-Dvulkan=enabled
+-Duchardet=enabled
+-Dvaapi=enabled
+-Dvdpau=enabled
+-Dcuda-hwaccel=enabled
+EOF
 
 # Ensure master versions are used
 echo "Ensuring master versions are used for mpv, ffmpeg, and libass..."
