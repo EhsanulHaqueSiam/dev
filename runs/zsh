@@ -5,3 +5,5 @@ hash -r
 chsh -s $(which zsh)
 
 yay -S zsh-autosuggestions zsh-autosuggestions-git
+
+git clone https://github.com/zsh-users/zsh-autosuggestions ~/.zsh/zsh-autosuggestions

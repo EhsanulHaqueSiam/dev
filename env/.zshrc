@@ -2,6 +2,8 @@
 # --------------------
 # Path to your oh-my-zsh installation.
 # Reevaluate the prompt string each time it's displaying a prompt
+source ~/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh
+
 setopt prompt_subst
 
 # Auto-completion
