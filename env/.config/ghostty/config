@@ -1,0 +1,24 @@
+term = xterm-256color
+
+background-blur-radius = 20
+mouse-hide-while-typing = true
+window-decoration = true
+keybind = global:cmd+/=toggle_quick_terminal
+macos-option-as-alt = true
+
+background-opacity = 0.7
+background-blur-radius = 20
+
+## Clipboard
+clipboard-read = "allow"
+clipboard-paste-protection = false
+
+## Theme
+theme = tokyonight-storm
+font-family = FiraCode Nerd Font
+font-size = 13
+
+## Window
+window-decoration = false
+mouse-hide-while-typing = true
+macos-window-shadow = false

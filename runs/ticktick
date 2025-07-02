@@ -1,4 +1,3 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Install TickTick using Snap
-sudo snap install ticktick
+paru -S --noconfirm --needed ticktick

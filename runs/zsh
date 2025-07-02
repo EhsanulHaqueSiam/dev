@@ -1,45 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Function to check if a command exists
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
+sudo pacman -S zsh
+hash -r
+chsh -s $(which zsh)
 
-# Update package lists
-echo "Updating package lists..."
-sudo apt update
-
-# Install Zsh if not already installed
-if command_exists zsh; then
-    echo "Zsh is already installed."
-else
-    echo "Installing Zsh..."
-    sudo apt install -y zsh
-fi
-
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-
-# Set Zsh as the default shell for the current user
-echo "Setting Zsh as the default shell..."
-if [ "$SHELL" != "$(which zsh)" ]; then
-    chsh -s "$(which zsh)"
-    echo "Default shell changed to Zsh. Please log out and log back in for the change to take effect."
-else
-    echo "Zsh is already the default shell."
-fi
-
-# Confirm installation
-if command_exists zsh; then
-    echo "Zsh installation and configuration complete!"
-else
-    echo "Something went wrong. Zsh is not properly installed."
-fi
-
-git clone https://github.com/zsh-users/zsh-autosuggestions ~/.zsh/zsh-autosuggestions
-
-ZINIT_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}/zinit/zinit.git"
-if [ ! -d "$ZINIT_HOME" ]; then
-   mkdir -p "$(dirname $ZINIT_HOME)"
-   git clone https://github.com/zdharma-continuum/zinit.git "$ZINIT_HOME"
-fi
-
+yay -S zsh-autosuggestions zsh-autosuggestions-git

@@ -1,26 +1,3 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Step 1: Install Discord
-echo "Starting Discord installation..."
-
-# Download Discord .deb file (latest version)
-wget -O discord.deb "https://discord.com/api/download?platform=linux&format=deb"
-
-# Install the .deb package
-sudo dpkg -i discord.deb
-
-# Fix missing dependencies if there are any
-sudo apt-get install -f -y
-
-# Clean up by removing the downloaded .deb file
-rm discord.deb
-
-echo "Discord installation is complete!"
-
-# Step 2: Install Vencord
-echo "Starting Vencord installation..."
-
-# Temporarily switch to Bash to run Vencord installer
-bash -c 'sh -c "$(curl -sS https://raw.githubusercontent.com/Vendicated/VencordInstaller/main/install.sh)"'
-
-echo "Vencord installation process completed!"
+paru -S --noconfirm --needed discord
