@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+sudo pacman -Syu nvidia nvidia-utils nvidia-settings
+sudo pacman -S cuda
+nvidia-smi
+nvcc --version

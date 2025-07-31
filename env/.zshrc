@@ -2,6 +2,13 @@
 # --------------------
 # Path to your oh-my-zsh installation.
 # Reevaluate the prompt string each time it's displaying a prompt
+# source ~/.local/share/omarchy/default/bash/rc
+
+. "$HOME/.local/share/../bin/env"
+
+[[ "$TERM_PROGRAM" == "kiro" ]] && . "$(kiro --locate-shell-integration-path zsh)"
+
+eval "$(zoxide init zsh --cmd cd)"
 source ~/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh
 
 setopt prompt_subst
@@ -151,18 +158,12 @@ eval "$(atuin init zsh)"
 export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow'
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
+# Cuda
+export CUDA_HOME=/opt/cuda
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+
 # >>> MiniConda3 initialize >>>
-# !! Contents within this block are managed by 'conda init' !!
-__conda_setup="$('$HOME/miniconda3/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
-if [ $? -eq 0 ]; then
-    eval "$__conda_setup"
-else
-    if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
-        . "$HOME/miniconda3/etc/profile.d/conda.sh"
-    else
-        export PATH="$HOME/miniconda3/bin:$PATH"
-    fi
-fi
-unset __conda_setup
-# <<< conda initialize <<<
+[ -f /opt/miniconda3/etc/profile.d/conda.sh ] && source /opt/miniconda3/etc/profile.d/conda.sh
+
 
