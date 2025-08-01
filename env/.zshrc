@@ -85,6 +85,46 @@ alias la=tree
 alias cat=bat
 alias cl='clear'
 
+# File system
+alias ls='eza -lh --group-directories-first --icons=auto'
+alias lsa='ls -a'
+alias lt='eza --tree --level=2 --long --icons --git'
+alias lta='lt -a'
+alias ff="fzf --preview 'bat --style=numbers --color=always {}'"
+alias cd="zd"
+zd() {
+  if [ $# -eq 0 ]; then
+    builtin cd ~ && return
+  elif [ -d "$1" ]; then
+    builtin cd "$1"
+  else
+    z "$@" && printf " \U000F17A9 " && pwd || echo "Error: Directory not found"
+  fi
+}
+open() {
+  xdg-open "$@" >/dev/null 2>&1 &
+}
+
+# Directories
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+
+# Tools
+alias g='git'
+alias d='docker'
+alias r='rails'
+n() { if [ "$#" -eq 0 ]; then nvim .; else nvim "$@"; fi; }
+
+# Git
+alias gcm='git commit -m'
+alias gcam='git commit -a -m'
+alias gcad='git commit -a --amend'
+
+# Find packages without leaving the terminal
+alias yayf="yay -Slq | fzf --multi --preview 'yay -Sii {1}' --preview-window=down:75% | xargs -ro yay -S"
+
+
 # Git
 alias gc="git commit -m"
 alias gca="git commit -a -m"
@@ -162,6 +202,12 @@ export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow'
 export CUDA_HOME=/opt/cuda
 export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+
+# Set complete path
+export PATH="./bin:$HOME/.local/bin:$HOME/.local/share/omarchy/bin:$PATH"
+set +h
+# Omarchy
+export OMARCHY_PATH="/home/$USER/.local/share/omarchy"
 
 # >>> MiniConda3 initialize >>>
 [ -f /opt/miniconda3/etc/profile.d/conda.sh ] && source /opt/miniconda3/etc/profile.d/conda.sh
