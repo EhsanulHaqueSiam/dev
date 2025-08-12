@@ -5,6 +5,7 @@
 # source ~/.local/share/omarchy/default/bash/rc
 
 . "$HOME/.local/share/../bin/env"
+eval "$(mise activate zsh)"
 
 [[ "$TERM_PROGRAM" == "kiro" ]] && . "$(kiro --locate-shell-integration-path zsh)"
 
@@ -212,4 +213,4 @@ export OMARCHY_PATH="/home/$USER/.local/share/omarchy"
 # >>> MiniConda3 initialize >>>
 [ -f /opt/miniconda3/etc/profile.d/conda.sh ] && source /opt/miniconda3/etc/profile.d/conda.sh
 
-
+export PATH="$HOME/.local/bin:$PATH"
