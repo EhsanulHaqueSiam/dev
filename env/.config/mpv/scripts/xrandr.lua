@@ -65,7 +65,7 @@ function xrandr_detect_available_rates()
 	local res = utils.subprocess(p)
 	
 	if (res["error"] ~= nil) then
-		mp.msg.log("info", "failed to execute 'xrand -q', error message: " .. res["error"])
+		mp.msg.log("info", "failed to execute 'xrandr -q', error message: " .. res["error"])
 		return
 	end
 	
@@ -266,7 +266,9 @@ function xrandr_set_rate()
 	-- iterate over all relevant outputs used by mpv's output:
 	for n, output in ipairs(outs) do
 		
-		if (ignore_unknown_oldrate == false and xrandr_modes[output].old_rate == 0) then
+		if (not xrandr_modes[output]) then
+			mp.msg.log("info", "no mode information available for output " .. output .. ", skipping")
+		elseif (ignore_unknown_oldrate == false and xrandr_modes[output].old_rate == 0) then
 			mp.msg.log("info", "not touching output " .. output .. " because xrandr did not indicate a used refresh rate for it - use --script-opts=xrandr-ignore_unknown_oldrate=true if that is not what you want.")
 		else
 			local bfr = xrandr_find_best_fitting_rate(xrandr_cfps, output)
@@ -335,9 +337,12 @@ function xrandr_set_old_rate()
 	-- iterate over all relevant outputs used by mpv's output:
 	for n, output in ipairs(outs) do
 		
-		local old_rate = xrandr_modes[output].old_rate
-		
-		if (old_rate == 0 or xrandr_previously_set[output] == nil ) then
+		if (not xrandr_modes[output]) then
+			mp.msg.log("info", "no mode information available for output " .. output .. ", skipping")
+		else
+			local old_rate = xrandr_modes[output].old_rate
+			
+			if (old_rate == 0 or xrandr_previously_set[output] == nil ) then
 			mp.msg.log("v", "no previous frame rate known for output " .. output .. " - so no switching back.")
 		else
 
@@ -367,6 +372,7 @@ function xrandr_set_old_rate()
 					xrandr_previously_set[output] = old_rate
 				end
 			end
+		end
 		end
 		
 	end
