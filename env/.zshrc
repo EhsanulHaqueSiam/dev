@@ -2,7 +2,10 @@
 # --------------------
 # Path to your oh-my-zsh installation.
 # Reevaluate the prompt string each time it's displaying a prompt
-# source ~/.local/share/omarchy/default/bash/rc
+source ~/.local/share/omarchy/default/bash/aliases
+source ~/.local/share/omarchy/default/bash/functions
+source ~/.local/share/omarchy/default/bash/prompt
+source ~/.local/share/omarchy/default/bash/envs
 
 . "$HOME/.local/share/../bin/env"
 eval "$(mise activate zsh)"
@@ -28,7 +31,7 @@ export PATH=$PATH:/usr/local/go/bin:/usr/bin/node:/usr/bin/python3
 
 # Starship Prompt
 eval "$(starship init zsh)"
-export STARSHIP_CONFIG=~/.config/starship/starship.toml
+export STARSHIP_CONFIG=~/.config/starship.toml
 
 # Plugins
 # --------------------
@@ -99,7 +102,7 @@ zd() {
   elif [ -d "$1" ]; then
     builtin cd "$1"
   else
-    z "$@" && printf " \U000F17A9 " && pwd || echo "Error: Directory not found"
+    z "$@" && printf "\U000F17A9 " && pwd || echo "Error: Directory not found"
   fi
 }
 open() {
@@ -165,18 +168,6 @@ alias kns="kubens"
 alias kl="kubectl logs -f"
 alias ke="kubectl exec -it"
 alias kcns='kubectl config set-context --current --namespace'
-
-# ExpressVPN Aliases
-alias vpn="expressvpn"
-alias vpnon="expressvpn connect"
-alias vpnoff="expressvpn disconnect"
-alias vpnstatus="expressvpn status"
-alias vpnlist="expressvpn list"
-alias vpnservers="expressvpn list all"
-
-
-# Networking
-alias nm="nmap -sC -sV -oN nmap"
 
 # HTTP Requests
 alias http="xh"
