@@ -10,9 +10,9 @@ if [ -z "${XDG_CONFIG_HOME:-}" ]; then
 	XDG_CONFIG_HOME="$HOME/.config"
 fi
 
+# Auto-detect DEV_ENV from script location if not set
 if [ -z "${DEV_ENV:-}" ]; then
-	echo "error: DEV_ENV must be set (path to this repo)"
-	exit 1
+	DEV_ENV="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 fi
 
 # Colors

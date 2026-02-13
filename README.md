@@ -7,10 +7,13 @@ Automated dev environment setup for Arch Linux. Install tools + deploy dotfiles 
 ```bash
 # Fresh machine
 git clone git@github.com:EhsanulHaqueSiam/dev.git ~/dev
-export DEV_ENV=~/dev
+cd ~/dev
 
-# Install everything + deploy configs
+# Install everything + deploy configs (auto-detects repo path)
 ./run
+
+# Or pass the path explicitly without exporting
+DEV_ENV=~/dev ./run
 
 # Install specific tool only
 ./run rust
@@ -22,6 +25,8 @@ export DEV_ENV=~/dev
 # Dry run (preview without changes)
 ./run --dry
 ```
+
+No need to `export DEV_ENV` — if not set, `./run` auto-detects its own directory.
 
 ## Saving Config Changes
 
@@ -36,8 +41,7 @@ git add -A && git commit -m "update nvim config" && git push
 
 ```bash
 git clone git@github.com:EhsanulHaqueSiam/dev.git ~/dev
-export DEV_ENV=~/dev
-./run
+cd ~/dev && ./run
 ```
 
 That's it. All tools install and configs symlink into place.
