@@ -62,6 +62,24 @@ All keybindings follow a **mnemonic prefix** pattern. The first letter after `<l
 | `jk` / `jj` | i | Escape insert mode |
 | `,` `.` `;` | i | Undo breakpoints |
 
+### Commenting (LazyVim built-in)
+
+| Key | Mode | Description |
+|-----|------|-------------|
+| `gcc` | n | Toggle comment on current line |
+| `gc` | v | Toggle comment on selected lines |
+| `gc{motion}` | n | Comment with motion (e.g. `gcap` = comment paragraph) |
+| `gco` | n | Add comment on line below |
+| `gcO` | n | Add comment on line above |
+| `gcA` | n | Add comment at end of line |
+
+Examples:
+- `gcc` — toggle comment on one line
+- `Vjjgc` — select 3 lines, toggle comment
+- `gcip` — comment inner paragraph
+- `gc3j` — comment current + 3 lines below
+- `gcaf` — comment entire function (uses treesitter `af` text object)
+
 ### Navigation
 
 | Key | Mode | Description |
