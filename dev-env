@@ -1,75 +1,144 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
 dry_run="0"
-
-if [ -z "$XDG_CONFIG_HOME" ]; then
-	echo "no xdg config hom"
-	echo "using ~/.config"
-	XDG_CONFIG_HOME=$HOME/.config
-fi
-
-if [ -z "$DEV_ENV" ]; then
-	echo "env var DEV_ENV needs to be present"
-	exit 1
-fi
-
-if [[ $1 == "--dry" ]]; then
+if [[ "${1:-}" == "--dry" ]]; then
 	dry_run="1"
 fi
 
-log() {
+if [ -z "${XDG_CONFIG_HOME:-}" ]; then
+	XDG_CONFIG_HOME="$HOME/.config"
+fi
+
+if [ -z "${DEV_ENV:-}" ]; then
+	echo "error: DEV_ENV must be set (path to this repo)"
+	exit 1
+fi
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+log()  { echo -e "${GREEN}[dev-env]${NC} $1"; }
+warn() { echo -e "${YELLOW}[dev-env]${NC} $1"; }
+err()  { echo -e "${RED}[dev-env]${NC} $1"; }
+
+dry() {
 	if [[ $dry_run == "1" ]]; then
-		echo "[DRY_RUN]: $1"
-	else
-		echo "$1"
+		echo -e "${YELLOW}[DRY_RUN]${NC} $1"
+		return 1
+	fi
+	return 0
+}
+
+# Symlink a directory: remove existing target, create symlink
+link_dir() {
+	local src="$1"
+	local dest="$2"
+
+	if [ ! -d "$src" ]; then
+		warn "skipping (source not found): $src"
+		return
+	fi
+
+	# Already correctly linked
+	if [ -L "$dest" ] && [ "$(readlink -f "$dest")" == "$(readlink -f "$src")" ]; then
+		log "  already linked: $dest"
+		return
+	fi
+
+	if dry "  would link: $src -> $dest"; then
+		# Remove existing (file, dir, or broken symlink)
+		if [ -e "$dest" ] || [ -L "$dest" ]; then
+			log "  removing: $dest"
+			rm -rf "$dest"
+		fi
+		ln -sf "$src" "$dest"
+		log "  linked: $src -> $dest"
 	fi
 }
 
-log "env: $DEV_ENV"
+# Symlink a file: remove existing target, create symlink
+link_file() {
+	local src="$1"
+	local dest="$2"
 
-update_files() {
-	log "copying over files from: $1"
-	pushd $1 &>/dev/null
-	(
-		configs=$(find . -mindepth 1 -maxdepth 1 -type d)
-		for c in $configs; do
-			directory=${2%/}/${c#./}
-			log "    removing: rm -rf $directory"
+	if [ ! -f "$src" ]; then
+		warn "skipping (source not found): $src"
+		return
+	fi
 
-			if [[ $dry_run == "0" ]]; then
-				rm -rf $directory
-			fi
+	# Already correctly linked
+	if [ -L "$dest" ] && [ "$(readlink -f "$dest")" == "$(readlink -f "$src")" ]; then
+		log "  already linked: $dest"
+		return
+	fi
 
-			log "    copying env: cp $c $2"
-			if [[ $dry_run == "0" ]]; then
-				cp -r ./$c $2
-			fi
+	if dry "  would link: $src -> $dest"; then
+		if [ -e "$dest" ] || [ -L "$dest" ]; then
+			rm -f "$dest"
+		fi
+		ln -sf "$src" "$dest"
+		log "  linked: $src -> $dest"
+	fi
+}
+
+# -----------------------------------------------------------------------
+# .config/ directories — symlink each subdirectory
+# -----------------------------------------------------------------------
+log "linking .config directories..."
+mkdir -p "$XDG_CONFIG_HOME"
+
+for dir in "$DEV_ENV"/env/.config/*/; do
+	[ -d "$dir" ] || continue
+	name="$(basename "$dir")"
+	link_dir "$DEV_ENV/env/.config/$name" "$XDG_CONFIG_HOME/$name"
+done
+
+# -----------------------------------------------------------------------
+# .local/ directories — symlink each subdirectory
+# -----------------------------------------------------------------------
+if [ -d "$DEV_ENV/env/.local" ]; then
+	log "linking .local directories..."
+	for dir in "$DEV_ENV"/env/.local/*/; do
+		[ -d "$dir" ] || continue
+		name="$(basename "$dir")"
+		mkdir -p "$HOME/.local/$name"
+		# For .local, link contents inside (scripts, bin) not the dir itself
+		for item in "$dir"*; do
+			[ -e "$item" ] || continue
+			link_file "$item" "$HOME/.local/$name/$(basename "$item")"
 		done
+	done
+fi
 
-	)
-	popd &>/dev/null
-}
+# -----------------------------------------------------------------------
+# Home dotfiles — symlink individual files
+# -----------------------------------------------------------------------
+log "linking home dotfiles..."
 
-copy() {
-	log "removing: $2"
-	if [[ $dry_run == "0" ]]; then
-		rm $2
+link_file "$DEV_ENV/env/.zshrc"    "$HOME/.zshrc"
+link_file "$DEV_ENV/env/.xprofile" "$HOME/.xprofile"
+link_file "$DEV_ENV/env/.profile"  "$HOME/.profile"
+
+# -----------------------------------------------------------------------
+# Self-install: make dev-env accessible from PATH
+# -----------------------------------------------------------------------
+mkdir -p "$HOME/.local/scripts"
+link_file "$DEV_ENV/dev-env" "$HOME/.local/scripts/dev-env"
+mkdir -p "$HOME/.local/bin"
+
+# -----------------------------------------------------------------------
+# Reload WM if available
+# -----------------------------------------------------------------------
+if command -v hyprctl &>/dev/null; then
+	log "reloading hyprland..."
+	if dry "  would run: hyprctl reload"; then
+		hyprctl reload
 	fi
-	log "copying: $1 to $2"
-	if [[ $dry_run == "0" ]]; then
-		cp $1 $2
-	fi
-}
+fi
 
-update_files $DEV_ENV/env/.config $XDG_CONFIG_HOME
-update_files $DEV_ENV/env/.local $HOME/.local
-
-copy $DEV_ENV/env/.zsh_profile $HOME/.zsh_profile
-copy $DEV_ENV/env/.zshrc $HOME/.zshrc
-copy $DEV_ENV/env/.xprofile $HOME/.xprofile
-copy $DEV_ENV/env/.profile $HOME/.profile
-copy $DEV_ENV/env/.tmux-sessionizer $HOME/.tmux-sessionizer
-copy $DEV_ENV/dev-env $HOME/.local/scripts/dev-env
-
-mkdir -p $HOME/.local/bin
-
-hyprctl reload
+log "done! configs are symlinked — edits sync back to the repo automatically."
+log "just 'cd $DEV_ENV && git add -A && git commit && git push' to save changes."

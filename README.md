@@ -1,69 +1,109 @@
-# Dev Environment Setup 🛠️
+# Dev Environment
 
-Automated development environment setup scripts for Linux systems. Quickly bootstrap a new machine with all essential development tools.
+Automated dev environment setup for Arch Linux. Install tools + deploy dotfiles with symlinks.
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
-# Set your dev environment path
-export DEV_ENV=$(pwd)
+# Fresh machine
+git clone git@github.com:EhsanulHaqueSiam/dev.git ~/dev
+export DEV_ENV=~/dev
 
-# Run all setup scripts
+# Install everything + deploy configs
 ./run
 
-# Run specific tool setup (e.g., only rust)
+# Install specific tool only
 ./run rust
+./run bun
 
-# Dry run to see what would be installed
+# Deploy configs only (no installs)
+./run --env
+
+# Dry run (preview without changes)
 ./run --dry
 ```
 
-## 📦 Included Tools
+## Saving Config Changes
 
-| Tool | Description |
-|------|-------------|
-| `atuin` | Shell history manager |
-| `bat` | Cat clone with syntax highlighting |
-| `fnm` | Fast Node.js version manager |
-| `ghostty` | Terminal emulator |
-| `miniconda` | Python environment manager |
-| `node` | Node.js runtime |
-| `ollama` | Local LLM runner |
-| `python` | Python setup |
-| `rust` | Rust toolchain |
-| `starship` | Cross-shell prompt |
-| `tmux` | Terminal multiplexer |
-| `uv` | Fast Python package manager |
-| `yazi` | Terminal file manager |
-| `zsh` | Z shell configuration |
+Configs are **symlinked**, not copied. Edit `~/.config/nvim/` (or any config) and it updates the repo directly.
 
-## 📁 Structure
-
-```
-├── run                 # Main runner script
-├── dev-env            # Environment setup
-├── runs/              # Individual tool installers
-│   ├── atuin
-│   ├── bat
-│   ├── rust
-│   ├── zsh
-│   └── ...
-└── env/               # Environment configs
+```bash
+cd ~/dev
+git add -A && git commit -m "update nvim config" && git push
 ```
 
-## ⚙️ How It Works
+## New Machine Restore
 
-1. Scripts in `runs/` are executed in order
-2. Each script installs/configures one tool
-3. Use grep filter to run specific scripts
-4. `--dry` flag previews without changes
+```bash
+git clone git@github.com:EhsanulHaqueSiam/dev.git ~/dev
+export DEV_ENV=~/dev
+./run
+```
 
-## 🖥️ Requirements
+That's it. All tools install and configs symlink into place.
 
-- Linux (tested on Arch Linux)
-- Bash shell
-- `curl` and `git`
+## Structure
 
-## 👤 Author
+```
+dev/
+├── run                    # Main orchestrator (installs + deploys)
+├── dev-env                # Config deployer (symlinks env/ to ~/)
+├── runs/                  # Individual tool installers
+│   ├── atuin              # Shell history
+│   ├── bat                # Better cat
+│   ├── bun                # JS/TS runtime
+│   ├── discord            # Communication
+│   ├── expressvpn         # VPN
+│   ├── fnm                # Node version manager
+│   ├── gemini             # Google Gemini CLI
+│   ├── ghostty            # Terminal emulator
+│   ├── miniconda          # Python env manager
+│   ├── neovim             # Editor + dependencies
+│   ├── node               # Node.js + npm
+│   ├── nvidiaDriver       # GPU drivers
+│   ├── ollama             # Local LLMs
+│   ├── omarchy            # Shell framework
+│   ├── python             # Python runtime
+│   ├── rust               # Rust toolchain
+│   ├── starship           # Prompt
+│   ├── ticktick           # Task manager
+│   ├── tldr               # Simplified man pages
+│   ├── tmux               # Terminal multiplexer
+│   ├── uv                 # Python package manager
+│   ├── yazi               # File manager
+│   └── zsh                # Shell + plugins
+└── env/                   # Dotfiles (symlinked to ~/)
+    ├── .config/
+    │   ├── atuin/         # Shell history config
+    │   ├── ghostty/       # Terminal config
+    │   ├── mpv/           # Media player
+    │   ├── nvim/          # Neovim (LazyVim)
+    │   ├── starship.toml  # Prompt config
+    │   ├── tmux/          # Multiplexer config
+    │   ├── wezterm/       # Alt terminal config
+    │   └── yazi/          # File manager config
+    ├── .local/scripts/    # Custom scripts
+    ├── .zshrc             # Shell config
+    ├── .profile           # Login shell
+    └── .xprofile          # X11/Wayland setup
+```
 
-**Ehsanul Haque Siam** - [@EhsanulHaqueSiam](https://github.com/EhsanulHaqueSiam)
+## How It Works
+
+**`./run`** iterates through `runs/` scripts alphabetically, executing each one. Then calls `dev-env` to deploy configs.
+
+**`./dev-env`** symlinks everything in `env/` to your home directory:
+- `env/.config/*` → `~/.config/*` (directory symlinks)
+- `env/.zshrc` → `~/.zshrc` (file symlinks)
+
+Symlinks mean changes flow both ways — edit in place, commit from repo.
+
+**Flags:**
+- `./run --dry` — preview without executing
+- `./run --env` — deploy configs only, skip installs
+- `./run <filter>` — only run scripts matching filter
+
+## Requirements
+
+- Arch Linux (uses `paru`/`pacman`)
+- `git`, `curl`, `bash`

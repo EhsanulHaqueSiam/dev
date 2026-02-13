@@ -1,0 +1,16 @@
+tt.*
+.tests
+doc/tags
+debug
+.repro
+foo.*
+*.log
+data
+
+# Generated at runtime by lazy.nvim
+plugin/
+
+# Swap/undo/backup
+*.swp
+*.swo
+*~
