@@ -8,8 +8,8 @@ set -euo pipefail
 # Safe merge: no --delete (adds/overwrites, never removes local files)
 # -----------------------------------------------------------------------
 
-SSD="/run/media/siam/TRANSCEND"
-BACKUP_ROOT="$SSD/backups"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+source "$script_dir/lib/config.sh"
 DEFAULT_JOBS=4
 
 # Restore rsync flags:
@@ -44,6 +44,7 @@ while [[ $# -gt 0 ]]; do
 		--dry)   dry_run=1 ;;
 		--from)  shift; from_backup="${1:?--from requires a backup name}" ;;
 		--jobs)  shift; jobs="${1:?--jobs requires a number}" ;;
+		--ssd)   shift; SSD="${1:?--ssd requires a path}"; BACKUP_ROOT="$SSD/backups" ;;
 		*)       targets+=("$1") ;;
 	esac
 	shift

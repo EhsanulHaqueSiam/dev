@@ -1,37 +1,17 @@
-# General Zsh Settings
+# General Bash Settings
 # --------------------
-source ~/.local/share/omarchy/default/bash/aliases
-source ~/.local/share/omarchy/default/bash/functions
-source ~/.local/share/omarchy/default/bash/prompt
-source ~/.local/share/omarchy/default/bash/envs
 
-source ~/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh
-
-setopt prompt_subst
-
-# Auto-completion
-autoload bashcompinit && bashcompinit
-autoload -Uz compinit
-compinit
-zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
+# Source omarchy defaults if available
+[[ -f ~/.local/share/omarchy/default/bash/aliases ]] && source ~/.local/share/omarchy/default/bash/aliases
+[[ -f ~/.local/share/omarchy/default/bash/functions ]] && source ~/.local/share/omarchy/default/bash/functions
+[[ -f ~/.local/share/omarchy/default/bash/prompt ]] && source ~/.local/share/omarchy/default/bash/prompt
+[[ -f ~/.local/share/omarchy/default/bash/envs ]] && source ~/.local/share/omarchy/default/bash/envs
 
 # Path and Language Settings
 export LANG=en_US.UTF-8
 export XDG_CONFIG_HOME="$HOME/.config"
 export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.vimpkg/bin:$HOME/.cargo/bin:/run/current-system/sw/bin:$PATH
 export PATH=$PATH:/usr/local/go/bin:/usr/bin/node:/usr/bin/python3
-
-# Plugins
-# --------------------
-bindkey '^w' autosuggest-execute
-bindkey '^e' autosuggest-accept
-bindkey '^u' autosuggest-toggle
-bindkey '^L' vi-forward-word
-bindkey '^k' up-line-or-search
-bindkey '^j' down-line-or-search
-
-# VI Mode
-bindkey jj vi-cmd-mode
 
 # Navigation Enhancements
 # --------------------
@@ -41,7 +21,7 @@ f() { echo "$(find . -type f -not -path '*/.*' | fzf)" | wl-copy; }
 fv() { nvim "$(find . -type f -not -path '*/.*' | fzf)"; }
 
 # Yazi
-function y() {
+y() {
 	local tmp="$(mktemp -t "yazi-cwd.XXXXXX")" cwd
 	yazi "$@" --cwd-file="$tmp"
 	if cwd="$(command cat -- "$tmp")" && [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
@@ -49,7 +29,6 @@ function y() {
 	fi
 	rm -f -- "$tmp"
 }
-
 
 # Aliases
 # --------------------
@@ -78,7 +57,7 @@ alias g='git'
 alias d='docker'
 alias r='rails'
 n() { if [ "$#" -eq 0 ]; then nvim .; else nvim "$@"; fi; }
-open() { xdg-open "$@" >/dev/null 2>&1 &; }
+open() { xdg-open "$@" >/dev/null 2>&1 & }
 
 # Git
 alias gc="git commit -m"
@@ -129,12 +108,12 @@ alias http="xh"
 
 # Set complete path
 export PATH="./bin:$HOME/.local/bin:$HOME/.local/share/omarchy/bin:$PATH"
-set +h
 # Omarchy
 export OMARCHY_PATH="$HOME/.local/share/omarchy"
 
 # Tool initialization (shared across bash/zsh)
-source "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-init.sh"
+[[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-init.sh" ]] && \
+    source "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-init.sh"
 
 # Shell functions (bwu, etc.)
 [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-functions.sh" ]] && \

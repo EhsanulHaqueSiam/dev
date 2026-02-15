@@ -1,21 +1,21 @@
 # Dev Environment
 
-Automated dev environment setup for Arch Linux. Install tools + deploy dotfiles with symlinks.
+Automated dev environment setup for Arch Linux. Install tools + deploy dotfiles.
 
 ## Quick Start
 
 ```bash
-git clone git@github.com:EhsanulHaqueSiam/dev.git ~/dev
-cd ~/dev
-./run
+git clone git@github.com:EhsanulHaqueSiam/dev.git ~/Personal/dev
+cd ~/Personal/dev
+./tui
 ```
 
-That's it. All tools get installed and configs get symlinked into place.
+On first run, the wizard prompts for your SSD path, projects directory, and source folders. Then use the menu to install tools and deploy configs.
 
-Or use the interactive TUI for a menu-driven experience:
+Or run everything non-interactively:
 
 ```bash
-./tui
+./run                  # install everything + deploy configs
 ```
 
 ## Usage
@@ -29,44 +29,70 @@ Installs all tools from `runs/` then deploys configs via `dev-env`.
 ./run rust             # install only scripts matching "rust"
 ./run bun              # install only scripts matching "bun"
 ./run node             # install only scripts matching "node"
-./run --env            # skip installs, only deploy configs (symlinks)
+./run --env            # skip installs, only deploy configs
 ./run --dry            # preview what would happen, no changes made
 ./run --dry rust       # dry run for a specific tool
-DEV_ENV=~/dev ./run    # pass repo path explicitly (optional)
+DEV_ENV=~/Personal/dev ./run    # pass repo path explicitly (optional)
 ```
 
 `DEV_ENV` is auto-detected from the script's location. You only need to set it if running from a different directory.
 
 ### `./dev-env` — Config deployer
 
-Symlinks everything in `env/` to your home directory. Called automatically by `./run`, but can also run standalone.
+Copies everything in `env/` to your home directory. Called automatically by `./run`, but can also run standalone.
 
 ```bash
 ./dev-env              # deploy all configs
-./dev-env --dry        # preview what would be linked
+./dev-env --dry        # preview what would be deployed
 ```
 
 What it does:
-- `env/.config/nvim/` → symlinks to `~/.config/nvim/`
-- `env/.config/tmux/` → symlinks to `~/.config/tmux/`
-- `env/.zshrc` → symlinks to `~/.zshrc`
+- `env/.config/nvim/` → copies to `~/.config/nvim/`
+- `env/.config/tmux/` → copies to `~/.config/tmux/`
+- `env/.zshrc` → copies to `~/.zshrc`
 - ...and so on for every config in `env/`
 
-**Idempotent** — running it again skips already-linked configs. Safe to re-run anytime.
+**Idempotent** — safe to re-run anytime. Existing configs are backed up to `~/.config-backup/` before replacing.
+
+After the first deploy, `DEV_ENV_PATH` is saved to config so `dev-env` works from any directory.
+
+#### Capturing config changes
+
+Since configs are copies (not symlinks), edits to your live configs (e.g. `~/.config/nvim/`) are **not** automatically reflected in the repo. To sync changes back:
+
+```bash
+# Capture a single config into the repo
+./dev-env capture ~/.config/nvim
+
+# Re-capture all tracked configs from the live system
+./dev-env update
+
+# Preview what would be captured
+./dev-env update --dry
+```
+
+Or edit configs directly in the repo and redeploy:
+
+```bash
+# Edit in repo, then push to system
+nvim ~/Personal/dev/env/.config/nvim/lua/config/options.lua
+./dev-env deploy
+```
 
 ### `./backup` — Backup to external SSD
 
-Syncs project directories to timestamped backups on the external SSD (`/run/media/siam/TRANSCEND`). Optimized for exFAT with parallel rsync.
+Syncs project directories to timestamped backups on the external SSD (configurable, default `/run/media/$USER/TRANSCEND`). Optimized for exFAT with parallel rsync.
 
 #### Two Modes
 
 **Full backup** — creates a new timestamped snapshot, auto-prunes old ones:
 ```bash
-./backup                           # backup all sources (Personal)
+./backup                           # backup all sources
 ./backup Personal                  # backup only Personal
 ./backup --dry                     # preview, no changes
 ./backup --keep 3                  # override retention (default: 2)
 ./backup --jobs 8                  # override parallel workers (default: 4)
+./backup --ssd /run/media/$USER/OTHER  # override SSD path
 ```
 
 **Subfolder update** — updates the latest existing backup in-place (no new snapshot, no pruning):
@@ -162,6 +188,7 @@ Output:
 ```bash
 ./restore --dry Personal           # preview what would change, no writes
 ./restore --jobs 8 Personal        # override parallel workers (default: 4)
+./restore --ssd /run/media/$USER/OTHER Personal  # override SSD path
 ```
 
 #### Safety
@@ -191,23 +218,72 @@ Unified secrets management with two backends: **age** (encrypted to SSD, offline
 ./secrets ssh backup --bw --dry    # preview
 ```
 
+**List local keys:**
+```bash
+./secrets ssh list                 # list SSH keys in ~/.ssh/
+```
+
+**Deploy key to a remote server** (passwordless SSH):
+```bash
+./secrets ssh copy-id user@server                    # copy default key to server
+./secrets ssh copy-id user@server id_ed25519.pub     # specify which key
+./secrets ssh copy-id user@server --dry              # preview
+```
+
+Copies your public key to the server's `~/.ssh/authorized_keys`. You type your password once, then future connections are key-based. Also available interactively via `./tui` → Secrets → SSH Keys → Setup SSH on Remote Server.
+
 #### .env Files
 
 Automatically discovers `.env`, `.env.local`, `.env.production`, `.env.development` files across all projects (up to 4 levels deep), excluding `node_modules`, `.git`, `__pycache__`, `.venv`, `.conda`.
 
-**age (SSD)** — encrypt all .env files into one archive:
+**All projects:**
 ```bash
-./secrets env backup               # encrypt .env files → SSD
-./secrets env restore              # decrypt .env files ← SSD
-./secrets env list                 # list all .env files in projects
-./secrets env backup --dry         # preview
+./secrets env backup               # encrypt all .env files → SSD
+./secrets env backup --bw          # store all .env files → Bitwarden
+./secrets env restore              # decrypt all .env files ← SSD
+./secrets env restore --bw         # retrieve all .env files ← Bitwarden
+./secrets env list                 # list all .env files
 ```
 
-**Bitwarden (cloud)** — store each .env file as a separate secure note:
+**Per-project:**
 ```bash
-./secrets env backup --bw          # store .env files → Bitwarden vault
-./secrets env restore --bw         # retrieve .env files ← Bitwarden vault
-./secrets env backup --bw --dry    # preview
+./secrets env backup betascript           # only betascript's .env files → SSD
+./secrets env backup betascript --bw      # only betascript's .env files → Bitwarden
+./secrets env restore betascript          # restore only betascript ← SSD
+./secrets env restore betascript --bw     # restore only betascript ← Bitwarden
+./secrets env list betascript             # list only betascript's .env files
+```
+
+**Cross-project restore:**
+```bash
+./secrets env restore betascript --to DWDM-paper       # copy betascript's .env → DWDM-paper/ (SSD)
+./secrets env restore betascript --to DWDM-paper --bw  # copy betascript's .env → DWDM-paper/ (Bitwarden)
+```
+
+**Preview:**
+```bash
+./secrets env backup --dry                # preview all-project backup
+./secrets env backup betascript --dry     # preview per-project backup
+./secrets env restore betascript --to DWDM-paper --dry  # preview cross-project
+```
+
+#### Aliases
+
+Manage project aliases for `.env` operations:
+
+```bash
+./secrets alias list                      # show all aliases
+./secrets alias set betascript bs         # set alias "bs" → betascript
+./secrets alias remove betascript         # remove alias
+```
+
+#### SSD Override
+
+All secrets commands accept `--ssd <path>` to override the SSD location:
+
+```bash
+./secrets ssh backup --ssd /mnt/usb
+./secrets env restore --ssd /mnt/usb
 ```
 
 #### List All Secrets
@@ -267,13 +343,16 @@ Full interactive menu for all dev environment operations. Powered by [gum](https
 ./tui
 ```
 
+On first run, a **setup wizard** prompts for SSD path, projects directory, and source folders. These are saved to `~/.config/dev-env/config` and can be changed later via Settings.
+
 Features:
 - **Install Tools** — install all, install missing only, select individual tools with installed status and versions, dry run preview
-- **Deploy Configs** — deploy all, deploy unlinked only, select individual configs with symlink status (linked/not linked/conflict), view status panel
+- **Deploy Configs** — deploy all, deploy missing only, select individual configs with deploy status (deployed/not deployed/missing), capture a config, update all tracked configs, view status panel
 - **Backup** — full backup, selective project backup, subfolder update, dry run, configure retention and workers
 - **Restore** — restore from latest/specific backup, pick projects or subfolders, dry run preview
-- **Secrets** — SSH keys and .env files with two backends (age SSD + Bitwarden cloud), list all secrets, view local SSH keys
+- **Secrets** — SSH keys and .env files with two backends (age SSD + Bitwarden cloud), list all secrets, view local SSH keys, alias management
 - **Status** — SSD info, backup list with sizes, secrets overview, Bitwarden status, system specs, git status
+- **Settings** — change SSD path, projects directory, source folders, edit config file, reset to defaults
 
 ### `./make_runs_executable` — Helper
 
@@ -285,29 +364,46 @@ Makes all scripts in `runs/` executable. Run this after cloning if permissions a
 
 ## Saving Config Changes
 
-Configs are **symlinked**, not copied. When you edit `~/.config/nvim/` (or any config), you're editing the repo directly.
+Configs are **copied**, not symlinked. Edits to your live configs (e.g. `~/.config/nvim/`) are local to your system and don't automatically appear in the repo.
+
+To sync changes back to the repo:
 
 ```bash
-# Edit your config normally
-nvim ~/.config/nvim/lua/config/options.lua
+# Option 1: Capture a single config
+./dev-env capture ~/.config/nvim
 
-# Changes are already in the repo — just commit
-cd ~/dev
+# Option 2: Re-capture all tracked configs
+./dev-env update
+
+# Then commit
+cd ~/Personal/dev
 git add -A && git commit -m "update nvim config" && git push
 ```
 
-No sync scripts needed. Symlinks keep everything in sync automatically.
+To push repo changes to your system:
+
+```bash
+# Edit in repo, then deploy
+./dev-env deploy
+```
 
 ## New Machine Setup
 
 ```bash
 # 1. Clone the repo
-git clone git@github.com:EhsanulHaqueSiam/dev.git ~/dev
+git clone git@github.com:EhsanulHaqueSiam/dev.git ~/Personal/dev
 
-# 2. Run everything
-cd ~/dev && ./run
+# 2. Run the TUI — first-run wizard configures SSD path, projects dir, sources
+cd ~/Personal/dev && ./tui
 
-# 3. Done — all tools installed, all configs linked
+# 3. Install tools + deploy configs (via TUI menu or non-interactively)
+./run
+
+# 4. Open a new shell — tools auto-initialize via shell-init.sh
+# (Cargo, Go, Bun, fnm, Atuin, Starship, Zoxide, Conda, FZF, uv, CUDA)
+
+# 5. Unlock Bitwarden from terminal (if using Bitwarden backend)
+bwu
 ```
 
 ### Partial Setup
@@ -315,7 +411,7 @@ cd ~/dev && ./run
 Don't want everything? Install only what you need:
 
 ```bash
-cd ~/dev
+cd ~/Personal/dev
 
 # Install individual tools
 ./run neovim
@@ -357,7 +453,7 @@ chmod +x runs/mytool
 1. Copy or create the config in `env/.config/`:
 
 ```bash
-cp -r ~/.config/mytool ~/dev/env/.config/mytool
+cp -r ~/.config/mytool ~/Personal/dev/env/.config/mytool
 ```
 
 2. Deploy it:
@@ -366,19 +462,22 @@ cp -r ~/.config/mytool ~/dev/env/.config/mytool
 ./run --env
 ```
 
-This replaces `~/.config/mytool/` with a symlink to the repo. Future edits go straight to the repo.
+This copies `env/.config/mytool/` to `~/.config/mytool/`. To sync future changes, use `dev-env capture` or `dev-env update`.
 
 ## Structure
 
 ```
 dev/
 ├── run                    # Main orchestrator (installs + deploys)
-├── dev-env                # Config deployer (symlinks env/ to ~/)
+├── dev-env                # Config deployer (copies env/ to ~/)
 ├── backup                 # Backup projects to external SSD
 ├── restore                # Restore projects from external SSD
 ├── secrets                # Secrets manager (SSH keys + .env files, age + Bitwarden)
 ├── tui                    # Interactive terminal UI (gum)
 ├── make_runs_executable   # chmod helper
+│
+├── lib/
+│   └── config.sh          # Shared config loader (SSD path, projects dir, sources)
 │
 ├── runs/                  # Individual tool installers
 │   ├── age                # Modern encryption tool (secrets backup)
@@ -412,9 +511,12 @@ dev/
 │   ├── yazi               # Terminal file manager
 │   └── zsh                # Z shell + plugins
 │
-└── env/                   # Dotfiles (symlinked to ~/)
+└── env/                   # Dotfiles (deployed to ~/)
     ├── .config/
     │   ├── atuin/         # Shell history config
+    │   ├── dev-env/       # Dev environment runtime
+    │   │   ├── shell-init.sh       # Shared tool init (bash+zsh)
+    │   │   └── shell-functions.sh  # Shell functions (bwu, etc.)
     │   ├── ghostty/       # Terminal config (tokyo-night, FiraCode)
     │   ├── mpv/           # Media player (shaders, scripts, UI)
     │   ├── nvim/          # Neovim (LazyVim, 80+ plugins, 18 LSPs)
@@ -424,7 +526,8 @@ dev/
     │   └── yazi/          # File manager (catppuccin, plugins)
     ├── .local/
     │   └── scripts/       # Custom scripts (dev-env launcher)
-    ├── .zshrc             # Shell config (aliases, integrations)
+    ├── .bashrc            # Bash config (aliases, integrations)
+    ├── .zshrc             # Zsh config (aliases, integrations)
     ├── .profile           # Login shell PATH setup
     └── .xprofile          # X11/Wayland environment
 ```
@@ -433,18 +536,18 @@ dev/
 
 **`./run`** finds all executable scripts in `runs/`, runs them alphabetically, then calls `dev-env` to deploy configs. Each installer is independent — one failing won't stop the rest. A colored summary shows what passed, failed, or was skipped.
 
-**`./dev-env`** walks through `env/` and creates symlinks:
-- Each directory in `env/.config/` gets symlinked to `~/.config/`
-- Each standalone file in `env/.config/` (e.g. `starship.toml`) gets symlinked too
-- Each file in `env/.local/scripts/` gets symlinked to `~/.local/scripts/`
+**`./dev-env`** walks through `env/` and copies configs to the system:
+- Each directory in `env/.config/` gets copied to `~/.config/`
+- Each standalone file in `env/.config/` (e.g. `starship.toml`) gets copied too
+- Each file in `env/.local/scripts/` gets copied to `~/.local/scripts/`
 - Home dotfiles are auto-detected from `env/` (any dotfile like `.zshrc`, `.profile`, `.xprofile`)
-- Already-linked configs are detected and skipped (idempotent)
-- Existing non-symlinked configs are backed up to `~/.config-backup/` before replacing
+- Existing non-repo configs are backed up to `~/.config-backup/` before replacing
+- Also installs itself to `~/.local/scripts/dev-env` so it works from anywhere
 - Reloads Hyprland if available
 
-Symlinks mean changes flow both ways — edit configs in place, commit from the repo.
+Since configs are copies, changes flow one direction at a time — use `dev-env capture` or `dev-env update` to pull live changes into the repo, and `dev-env deploy` to push repo changes to the system.
 
-**`./backup`** syncs project directories to the Transcend exFAT SSD at `/run/media/siam/TRANSCEND/backups/`. Two modes:
+**`./backup`** syncs project directories to the external SSD at `$SSD_PATH/backups/` (configurable via settings or `--ssd`). Two modes:
 - **Full backup**: creates a timestamped directory (`2026-02-15_14-30-00/`), prunes old ones past retention limit
 - **Subfolder update**: detects `/` in target (e.g. `Personal/dev`), updates the latest existing backup in-place without creating a new snapshot or pruning
 
@@ -454,11 +557,15 @@ Top-level items are synced in parallel (4 workers by default) with `ionice -c 2 
 
 **`./secrets`** manages SSH keys and `.env` files with two backends. The **age backend** encrypts to the SSD (offline, passphrase-based). The **Bitwarden backend** stores in your vault (cloud, synced across devices). SSH keys are stored as secure notes with private key in `.notes` and public key as a custom field. `.env` files are each stored as individual secure notes. Both backends auto-install their dependencies if missing.
 
-**`./tui`** provides an interactive gum-based interface for everything. Auto-installs gum if missing. Shows real-time status: which tools are installed (with versions), which configs are linked (with conflict detection), SSD info, secrets overview, and Bitwarden status.
+**`./tui`** provides an interactive gum-based interface for everything. Auto-installs gum if missing. On first run, a wizard configures SSD path, projects directory, and sources. Shows real-time status: which tools are installed (with versions), which configs are deployed (with conflict detection), SSD info, secrets overview, and Bitwarden status. Settings menu allows changing all configuration at any time.
 
-**SSD layout:**
+**`shell-init.sh`** is sourced by `.zshrc` (and can be sourced by `.bashrc`) to initialize all dev tools in any shell: Cargo, Go, Bun, fnm, Atuin, Starship, Zoxide, Conda, FZF, uv, and CUDA.
+
+**`bwu`** is a shell function (from `shell-functions.sh`) that unlocks Bitwarden and exports `BW_SESSION`. Handles login, unlock, and sync in one command.
+
+**SSD layout** (path configurable, default `/run/media/$USER/TRANSCEND`):
 ```
-/run/media/siam/TRANSCEND/
+$SSD_PATH/
 ├── System Volume Information/    # NEVER TOUCHED
 ├── backups/
 │   ├── 2026-02-15_14-30-00/
@@ -468,7 +575,8 @@ Top-level items are synced in parallel (4 workers by default) with `ionice -c 2 
 ├── ssh-keys/
 │   └── ssh-keys_hostname_2026-02-15_14-30-00.tar.age  # age-encrypted SSH keys
 └── env-secrets/
-    └── env-secrets_2026-02-15_14-30-00.tar.age         # age-encrypted .env files
+    ├── env-secrets_2026-02-15_14-30-00.tar.age         # all-projects archive
+    └── env-secrets_betascript_2026-02-15_14-30-00.tar.age  # per-project archive
 ```
 
 **Expanding the system:**
@@ -488,6 +596,9 @@ Top-level items are synced in parallel (4 workers by default) with `ionice -c 2 
 | `./run --dry <filter>` | Preview a specific tool |
 | `./dev-env` | Deploy configs standalone |
 | `./dev-env --dry` | Preview config deployment |
+| `./dev-env capture <path>` | Capture a live config into the repo |
+| `./dev-env update` | Re-capture all tracked configs from live system |
+| `./dev-env update --dry` | Preview what update would capture |
 | `DEV_ENV=/path ./run` | Override repo path |
 | `./backup` | Full backup of all sources to SSD |
 | `./backup <target>` | Full backup of specific project |
@@ -495,22 +606,37 @@ Top-level items are synced in parallel (4 workers by default) with `ionice -c 2 
 | `./backup --dry` | Preview backup |
 | `./backup --keep N` | Override retention count (default: 2) |
 | `./backup --jobs N` | Override parallel workers (default: 4) |
+| `./backup --ssd <path>` | Override SSD location |
 | `./restore` | List available backups with sizes |
 | `./restore <target>` | Restore from latest backup |
 | `./restore <target/sub>` | Restore specific subfolder |
 | `./restore --from <ts> <target>` | Restore from specific backup |
 | `./restore --dry <target>` | Preview restore |
 | `./restore --jobs N <target>` | Override parallel workers (default: 4) |
+| `./restore --ssd <path>` | Override SSD location |
 | `./secrets ssh backup` | Encrypt SSH keys → SSD (age) |
 | `./secrets ssh backup --bw` | Store SSH keys → Bitwarden |
 | `./secrets ssh restore` | Decrypt SSH keys ← SSD (age) |
 | `./secrets ssh restore --bw` | Retrieve SSH keys ← Bitwarden |
-| `./secrets env backup` | Encrypt .env files → SSD (age) |
-| `./secrets env backup --bw` | Store .env files → Bitwarden |
-| `./secrets env restore` | Decrypt .env files ← SSD (age) |
-| `./secrets env restore --bw` | Retrieve .env files ← Bitwarden |
-| `./secrets env list` | List .env files in projects |
+| `./secrets ssh list` | List local SSH keys |
+| `./secrets ssh copy-id <user@host>` | Copy public key to remote server |
+| `./secrets env backup` | Encrypt all .env files → SSD (age) |
+| `./secrets env backup --bw` | Store all .env files → Bitwarden |
+| `./secrets env backup <project>` | Encrypt project's .env files → SSD |
+| `./secrets env backup <project> --bw` | Store project's .env files → Bitwarden |
+| `./secrets env restore` | Decrypt all .env files ← SSD (age) |
+| `./secrets env restore --bw` | Retrieve all .env files ← Bitwarden |
+| `./secrets env restore <project>` | Decrypt project's .env files ← SSD |
+| `./secrets env restore <project> --bw` | Retrieve project's .env files ← Bitwarden |
+| `./secrets env restore <src> --to <dest>` | Cross-project .env copy (SSD) |
+| `./secrets env restore <src> --to <dest> --bw` | Cross-project .env copy (Bitwarden) |
+| `./secrets env list` | List all .env files in projects |
+| `./secrets env list <project>` | List project's .env files |
+| `./secrets alias list` | List all project aliases |
+| `./secrets alias set <project> <name>` | Set alias for a project |
+| `./secrets alias remove <project>` | Remove project alias |
 | `./secrets --list` | List all secrets on SSD/Bitwarden |
+| `./secrets --ssd <path>` | Override SSD location |
 | `./secrets --dry <command>` | Preview any secrets operation |
 | `./tui` | Interactive terminal UI (all features) |
 

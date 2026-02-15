@@ -13,13 +13,10 @@ set -euo pipefail
 #   ./backup Personal/dev — updates latest backup's subfolder in-place
 # -----------------------------------------------------------------------
 
-SSD="/run/media/siam/TRANSCEND"
-BACKUP_ROOT="$SSD/backups"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+source "$script_dir/lib/config.sh"
 DEFAULT_KEEP=2
 DEFAULT_JOBS=4
-
-# Source directories to back up (relative to $HOME)
-SOURCES=(Personal)
 
 # Excludes for rsync
 EXCLUDES=(
@@ -88,6 +85,7 @@ while [[ $# -gt 0 ]]; do
 		--dry)   dry_run=1 ;;
 		--keep)  shift; keep="${1:?--keep requires a number}" ;;
 		--jobs)  shift; jobs="${1:?--jobs requires a number}" ;;
+		--ssd)   shift; SSD="${1:?--ssd requires a path}"; BACKUP_ROOT="$SSD/backups" ;;
 		*)       targets+=("$1") ;;
 	esac
 	shift

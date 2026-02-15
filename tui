@@ -12,9 +12,7 @@ if [ -z "${DEV_ENV:-}" ]; then
 	DEV_ENV="$script_dir"
 fi
 
-SSD="/run/media/siam/TRANSCEND"
-BACKUP_ROOT="$SSD/backups"
-SOURCES=(Personal)
+source "$script_dir/lib/config.sh"
 
 # -----------------------------------------------------------------------
 # Check dependencies — auto-install gum if missing
@@ -121,15 +119,16 @@ main_menu() {
 		local choice
 		choice=$(gum choose \
 			--header "What would you like to do?" \
-			--height 11 \
+			--height 12 \
 			"Install Tools" \
 			"Deploy Configs" \
 			"Backup to SSD" \
 			"Restore from SSD" \
 			"Secrets" \
 			"Status" \
+			"Settings" \
 			"Quit" \
-		) || return 0
+		) || continue
 
 		case "$choice" in
 			"Install Tools")  menu_install ;;
@@ -138,6 +137,7 @@ main_menu() {
 			"Restore from SSD") menu_restore ;;
 			"Secrets")        menu_secrets ;;
 			"Status")         menu_status ;;
+			"Settings")       menu_settings ;;
 			"Quit")           return 0 ;;
 		esac
 	done
@@ -212,88 +212,92 @@ tool_version() {
 }
 
 menu_install() {
-	clear
-	header "Install Tools"
+	while true; do
+		clear
+		header "Install Tools"
 
-	# Gather tool info
-	local tools=() installed_count=0 total_count=0
-	for s in "$DEV_ENV"/runs/*; do
-		[[ -x "$s" ]] || continue
-		tools+=("$(basename "$s")")
-		total_count=$(( total_count + 1 ))
-	done
-
-	if [[ ${#tools[@]} -eq 0 ]]; then
-		error "No tools found in runs/"
-		pause
-		return
-	fi
-
-	# Show tool status overview
-	local installed_list=() missing_list=()
-	for t in "${tools[@]}"; do
-		if tool_installed "$t"; then
-			local ver
-			ver=$(tool_version "$t")
-			installed_count=$(( installed_count + 1 ))
-			if [[ -n "$ver" ]]; then
-				installed_list+=("$t ($ver)")
-			else
-				installed_list+=("$t")
-			fi
-		else
-			missing_list+=("$t")
-		fi
-	done
-
-	gum style --foreground 240 "  Tools: $installed_count/$total_count installed"
-	echo ""
-
-	if [[ ${#missing_list[@]} -gt 0 ]]; then
-		gum style --foreground 214 "  Not installed:"
-		for t in "${missing_list[@]}"; do
-			gum style --foreground 214 "    - $t"
+		# Gather tool info
+		local tools=() installed_count=0 total_count=0
+		shopt -s nullglob
+		for s in "$DEV_ENV"/runs/*; do
+			[[ -x "$s" ]] || continue
+			tools+=("$(basename "$s")")
+			total_count=$(( total_count + 1 ))
 		done
-		echo ""
-	fi
+		shopt -u nullglob
 
-	local choice
-	choice=$(gum choose \
-		--header "Select mode:" \
-		--height 8 \
-		"Install All" \
-		"Install Missing Only" \
-		"Select Tools" \
-		"View Installed" \
-		"Dry Run (preview)" \
-		"Back" \
-	) || return 0
+		if [[ ${#tools[@]} -eq 0 ]]; then
+			error "No tools found in runs/"
+			pause
+			return
+		fi
 
-	case "$choice" in
-		"Install All")
-			echo ""
-			if gum confirm "Install/update all $total_count tools?"; then
-				echo ""
-				"$DEV_ENV/run"
+		# Show tool status overview
+		local installed_list=() missing_list=()
+		for t in "${tools[@]}"; do
+			if tool_installed "$t"; then
+				local ver
+				ver=$(tool_version "$t")
+				installed_count=$(( installed_count + 1 ))
+				if [[ -n "$ver" ]]; then
+					installed_list+=("$t ($ver)")
+				else
+					installed_list+=("$t")
+				fi
+			else
+				missing_list+=("$t")
 			fi
-			pause
-			;;
-		"Install Missing Only")
-			do_install_missing "${missing_list[@]}"
-			;;
-		"Select Tools")
-			select_and_install "${tools[@]}"
-			;;
-		"View Installed")
-			do_view_installed "${installed_list[@]}"
-			;;
-		"Dry Run (preview)")
+		done
+
+		gum style --foreground 240 "  Tools: $installed_count/$total_count installed"
+		echo ""
+
+		if [[ ${#missing_list[@]} -gt 0 ]]; then
+			gum style --foreground 214 "  Not installed:"
+			for t in "${missing_list[@]}"; do
+				gum style --foreground 214 "    - $t"
+			done
 			echo ""
-			"$DEV_ENV/run" --dry
-			pause
-			;;
-		"Back") return 0 ;;
-	esac
+		fi
+
+		local choice
+		choice=$(gum choose \
+			--header "Select mode:" \
+			--height 8 \
+			"Install All" \
+			"Install Missing Only" \
+			"Select Tools" \
+			"View Installed" \
+			"Dry Run (preview)" \
+			"Back" \
+		) || return 0
+
+		case "$choice" in
+			"Install All")
+				echo ""
+				if gum confirm "Install/update all $total_count tools?"; then
+					echo ""
+					"$DEV_ENV/run"
+				fi
+				pause
+				;;
+			"Install Missing Only")
+				do_install_missing "${missing_list[@]}"
+				;;
+			"Select Tools")
+				select_and_install "${tools[@]}"
+				;;
+			"View Installed")
+				do_view_installed "${installed_list[@]}"
+				;;
+			"Dry Run (preview)")
+				echo ""
+				"$DEV_ENV/run" --dry
+				pause
+				;;
+			"Back") return 0 ;;
+		esac
+	done
 }
 
 do_install_missing() {
@@ -411,16 +415,14 @@ do_view_installed() {
 # Deploy Configs
 # -----------------------------------------------------------------------
 config_status() {
-	# Returns: "linked" | "not_linked" | "conflict" | "missing"
+	# Returns: "deployed" | "not_deployed" | "missing"
 	local src="$1" dest="$2"
 	if [[ ! -e "$src" && ! -d "$src" ]]; then
 		echo "missing"
-	elif [[ -L "$dest" ]] && [[ "$(readlink -f "$dest")" == "$(readlink -f "$src")" ]]; then
-		echo "linked"
-	elif [[ -e "$dest" || -L "$dest" ]]; then
-		echo "conflict"
+	elif [[ -e "$dest" ]]; then
+		echo "deployed"
 	else
-		echo "not_linked"
+		echo "not_deployed"
 	fi
 }
 
@@ -486,155 +488,133 @@ gather_configs() {
 }
 
 menu_deploy() {
-	clear
-	header "Deploy Configs"
+	while true; do
+		clear
+		header "Deploy Configs"
 
-	# Gather config status
-	local configs=()
-	local linked_count=0 not_linked_count=0 conflict_count=0 total_count=0
-	while IFS='|' read -r type name src dest status; do
-		configs+=("$type|$name|$src|$dest|$status")
-		total_count=$(( total_count + 1 ))
-		case "$status" in
-			linked)     linked_count=$(( linked_count + 1 )) ;;
-			not_linked) not_linked_count=$(( not_linked_count + 1 )) ;;
-			conflict)   conflict_count=$(( conflict_count + 1 )) ;;
-		esac
-	done < <(gather_configs)
+		# Gather config status
+		local configs=()
+		local deployed_count=0 not_deployed_count=0 total_count=0
+		while IFS='|' read -r type name src dest status; do
+			configs+=("$type|$name|$src|$dest|$status")
+			total_count=$(( total_count + 1 ))
+			case "$status" in
+				deployed)     deployed_count=$(( deployed_count + 1 )) ;;
+				not_deployed) not_deployed_count=$(( not_deployed_count + 1 )) ;;
+			esac
+		done < <(gather_configs)
 
-	gum style --foreground 240 "  Configs: $linked_count/$total_count linked"
-	if [[ $not_linked_count -gt 0 ]]; then
-		gum style --foreground 214 "  Not linked: $not_linked_count"
-	fi
-	if [[ $conflict_count -gt 0 ]]; then
-		gum style --foreground 196 "  Conflicts: $conflict_count (local file exists, not symlinked)"
-	fi
-	echo ""
+		gum style --foreground 240 "  Configs: $deployed_count/$total_count deployed"
+		if [[ $not_deployed_count -gt 0 ]]; then
+			gum style --foreground 214 "  Not deployed: $not_deployed_count"
+		fi
+		echo ""
 
-	local choice
-	choice=$(gum choose \
-		--header "Select mode:" \
-		--height 8 \
-		"Deploy All Configs" \
-		"Deploy Unlinked Only" \
-		"Select Configs" \
-		"View Status" \
-		"Dry Run (preview)" \
-		"Back" \
-	) || return 0
+		local choice
+		choice=$(gum choose \
+			--header "Select mode:" \
+			--height 10 \
+			"Deploy All Configs" \
+			"Deploy Missing Only" \
+			"Select Configs" \
+			"Capture Config" \
+			"Update All (re-capture)" \
+			"View Status" \
+			"Dry Run (preview)" \
+			"Back" \
+		) || return 0
 
-	case "$choice" in
-		"Deploy All Configs")
-			echo ""
-			if gum confirm "Deploy all $total_count configs?"; then
+		case "$choice" in
+			"Deploy All Configs")
 				echo ""
-				"$DEV_ENV/dev-env"
-			fi
-			pause
-			;;
-		"Deploy Unlinked Only")
-			do_deploy_unlinked "${configs[@]}"
-			;;
-		"Select Configs")
-			do_deploy_select "${configs[@]}"
-			;;
-		"View Status")
-			do_view_config_status "${configs[@]}"
-			;;
-		"Dry Run (preview)")
-			echo ""
-			"$DEV_ENV/dev-env" --dry
-			pause
-			;;
-		"Back") return 0 ;;
-	esac
+				if gum confirm "Deploy all $total_count configs?"; then
+					echo ""
+					"$DEV_ENV/dev-env"
+				fi
+				pause
+				;;
+			"Deploy Missing Only")
+				do_deploy_unlinked "${configs[@]}"
+				;;
+			"Select Configs")
+				do_deploy_select "${configs[@]}"
+				;;
+			"Capture Config")
+				local cap_path
+				cap_path=$(gum input \
+					--header "Path to capture (e.g. ~/.config/ghostty):" \
+					--placeholder "~/.config/something" \
+				) || continue
+				if [[ -n "$cap_path" ]]; then
+					echo ""
+					"$DEV_ENV/dev-env" capture "$cap_path"
+					pause
+				fi
+				;;
+			"Update All (re-capture)")
+				echo ""
+				"$DEV_ENV/dev-env" update
+				pause
+				;;
+			"View Status")
+				do_view_config_status "${configs[@]}"
+				;;
+			"Dry Run (preview)")
+				echo ""
+				"$DEV_ENV/dev-env" --dry
+				pause
+				;;
+			"Back") return 0 ;;
+		esac
+	done
 }
 
 deploy_single_config() {
 	local type="$1" name="$2" src="$3" dest="$4"
-	local xdg="${XDG_CONFIG_HOME:-$HOME/.config}"
 
-	case "$type" in
-		config)
-			# Symlink directory or standalone file in .config/
-			if [[ -e "$dest" || -L "$dest" ]]; then
-				if [[ ! -L "$dest" ]]; then
-					local backup_dir="$HOME/.config-backup/$(date +%Y%m%d-%H%M%S)"
-					mkdir -p "$backup_dir"
-					cp -r "$dest" "$backup_dir/$(basename "$dest")"
-					info "  backed up: $dest"
-				fi
-				rm -rf "$dest"
-			fi
-			mkdir -p "$(dirname "$dest")"
-			ln -sf "$src" "$dest"
-			success "  linked: $name -> $dest"
-			;;
-		local)
-			# Symlink individual file
-			mkdir -p "$(dirname "$dest")"
-			if [[ -e "$dest" || -L "$dest" ]]; then
-				if [[ ! -L "$dest" ]]; then
-					local backup_dir="$HOME/.config-backup/$(date +%Y%m%d-%H%M%S)"
-					mkdir -p "$backup_dir"
-					cp "$dest" "$backup_dir/$(basename "$dest")"
-					info "  backed up: $dest"
-				fi
-				rm -f "$dest"
-			fi
-			ln -sf "$src" "$dest"
-			success "  linked: $name -> $dest"
-			;;
-		dotfile)
-			# Symlink home dotfile
-			if [[ -e "$dest" || -L "$dest" ]]; then
-				if [[ ! -L "$dest" ]]; then
-					local backup_dir="$HOME/.config-backup/$(date +%Y%m%d-%H%M%S)"
-					mkdir -p "$backup_dir"
-					cp "$dest" "$backup_dir/$(basename "$dest")"
-					info "  backed up: $dest"
-				fi
-				rm -f "$dest"
-			fi
-			ln -sf "$src" "$dest"
-			success "  linked: $name -> $dest"
-			;;
-	esac
+	# Backup existing before replacing
+	if [[ -e "$dest" ]]; then
+		local backup_dir="$HOME/.config-backup/$(date +%Y%m%d-%H%M%S)"
+		mkdir -p "$backup_dir"
+		cp -r "$dest" "$backup_dir/$(basename "$dest")"
+		info "  backed up: $dest"
+		rm -rf "$dest"
+	fi
+
+	mkdir -p "$(dirname "$dest")"
+	cp -r "$src" "$dest"
+	success "  deployed: $name -> $dest"
 }
 
 do_deploy_unlinked() {
 	local configs=("$@")
-	local unlinked=()
+	local undeployed=()
 
 	for entry in "${configs[@]}"; do
 		IFS='|' read -r type name src dest status <<< "$entry"
-		if [[ "$status" == "not_linked" || "$status" == "conflict" ]]; then
-			unlinked+=("$entry")
+		if [[ "$status" == "not_deployed" ]]; then
+			undeployed+=("$entry")
 		fi
 	done
 
-	if [[ ${#unlinked[@]} -eq 0 ]]; then
+	if [[ ${#undeployed[@]} -eq 0 ]]; then
 		echo ""
-		success "All configs already linked!"
+		success "All configs already deployed!"
 		pause
 		return
 	fi
 
 	echo ""
 	gum style --foreground 214 "Configs to deploy:"
-	for entry in "${unlinked[@]}"; do
+	for entry in "${undeployed[@]}"; do
 		IFS='|' read -r type name src dest status <<< "$entry"
-		if [[ "$status" == "conflict" ]]; then
-			gum style --foreground 196 "  $name  (will backup existing)"
-		else
-			info "  $name"
-		fi
+		info "  $name"
 	done
 	echo ""
 
-	if gum confirm "Deploy ${#unlinked[@]} config(s)?"; then
+	if gum confirm "Deploy ${#undeployed[@]} config(s)?"; then
 		echo ""
-		for entry in "${unlinked[@]}"; do
+		for entry in "${undeployed[@]}"; do
 			IFS='|' read -r type name src dest status <<< "$entry"
 			deploy_single_config "$type" "$name" "$src" "$dest"
 		done
@@ -654,10 +634,9 @@ do_deploy_select() {
 	for entry in "${configs[@]}"; do
 		IFS='|' read -r type name src dest status <<< "$entry"
 		case "$status" in
-			linked)     labels+=("$name  ✓ linked") ;;
-			not_linked) labels+=("$name  ✗ not linked") ;;
-			conflict)   labels+=("$name  ⚠ conflict") ;;
-			missing)    labels+=("$name  ? missing source") ;;
+			deployed)     labels+=("$name  ✓ deployed") ;;
+			not_deployed) labels+=("$name  ✗ not deployed") ;;
+			missing)      labels+=("$name  ? missing source") ;;
 		esac
 	done
 
@@ -733,10 +712,9 @@ do_view_config_status() {
 		fi
 
 		case "$status" in
-			linked)     success "  ✓ $name" ;;
-			not_linked) warn "  ✗ $name  (not deployed)" ;;
-			conflict)   error "  ⚠ $name  (local file exists, not symlinked)" ;;
-			missing)    gum style --foreground 240 "  ? $name  (source missing)" ;;
+			deployed)     success "  ✓ $name" ;;
+			not_deployed) warn "  ✗ $name  (not deployed)" ;;
+			missing)      gum style --foreground 240 "  ? $name  (source missing)" ;;
 		esac
 	done
 
@@ -747,65 +725,80 @@ do_view_config_status() {
 # Backup
 # -----------------------------------------------------------------------
 menu_backup() {
-	if ! mountpoint -q "$SSD" 2>/dev/null; then
+	while true; do
+		if ! check_ssd; then
+			clear
+			header "Backup"
+			error "SSD not mounted at $SSD"
+			if gum confirm "Change SSD path?"; then
+				local new_ssd
+				new_ssd=$(gum input --header "Enter SSD mount path:" --value "$SSD") || { return 0; }
+				if [[ -n "$new_ssd" ]] && mountpoint -q "$new_ssd" 2>/dev/null; then
+					save_config "SSD_PATH" "$new_ssd"
+					load_config
+					success "SSD path updated to $SSD"
+				else
+					error "Path not mounted: $new_ssd"
+					pause
+					continue
+				fi
+			else
+				return 0
+			fi
+		fi
+
 		clear
-		header "Backup"
-		error "SSD not mounted at $SSD"
-		pause
-		return
-	fi
+		header "Backup to SSD"
+		info "SSD: $(ssd_status)"
 
-	clear
-	header "Backup to SSD"
-	info "SSD: $(ssd_status)"
-
-	# Show existing backups
-	local backups
-	mapfile -t backups < <(backup_list)
-	if [[ ${#backups[@]} -gt 0 ]]; then
-		echo ""
-		gum style --foreground 240 "  Existing backups:"
-		for b in "${backups[@]}"; do
-			local size
-			size=$(du -sh "$b" 2>/dev/null | cut -f1)
-			info "  $(basename "$b")  $size"
-		done
-	fi
-
-	echo ""
-
-	local choice
-	choice=$(gum choose \
-		--header "Backup mode:" \
-		--height 8 \
-		"Full Backup (new snapshot)" \
-		"Select Projects" \
-		"Update Subfolder (in latest)" \
-		"Dry Run (preview)" \
-		"Configure" \
-		"Back" \
-	) || return 0
-
-	case "$choice" in
-		"Full Backup (new snapshot)")
-			do_backup_full
-			;;
-		"Select Projects")
-			do_backup_select
-			;;
-		"Update Subfolder (in latest)")
-			do_backup_subfolder
-			;;
-		"Dry Run (preview)")
+		# Show existing backups
+		local backups
+		mapfile -t backups < <(backup_list)
+		if [[ ${#backups[@]} -gt 0 ]]; then
 			echo ""
-			"$DEV_ENV/backup" --dry
-			pause
-			;;
-		"Configure")
-			do_backup_configure
-			;;
-		"Back") return 0 ;;
-	esac
+			gum style --foreground 240 "  Existing backups:"
+			for b in "${backups[@]}"; do
+				local size
+				size=$(du -sh "$b" 2>/dev/null | cut -f1)
+				info "  $(basename "$b")  $size"
+			done
+		fi
+
+		echo ""
+
+		local choice
+		choice=$(gum choose \
+			--header "Backup mode:" \
+			--height 8 \
+			"Full Backup (new snapshot)" \
+			"Select Projects" \
+			"Update Subfolder (in latest)" \
+			"Dry Run (preview)" \
+			"Configure" \
+			"Back" \
+		) || return 0
+
+		case "$choice" in
+			"Full Backup (new snapshot)")
+				do_backup_full
+				;;
+			"Select Projects")
+				do_backup_select
+				;;
+			"Update Subfolder (in latest)")
+				do_backup_subfolder
+				;;
+			"Dry Run (preview)")
+				echo ""
+				"$DEV_ENV/backup" --dry
+				pause
+				;;
+			"Configure")
+				do_backup_configure
+				;;
+			"Back") return 0 ;;
+		esac
+	done
 }
 
 do_backup_full() {
@@ -942,66 +935,81 @@ do_backup_configure() {
 # Restore
 # -----------------------------------------------------------------------
 menu_restore() {
-	if ! mountpoint -q "$SSD" 2>/dev/null; then
+	while true; do
+		if ! check_ssd; then
+			clear
+			header "Restore"
+			error "SSD not mounted at $SSD"
+			if gum confirm "Change SSD path?"; then
+				local new_ssd
+				new_ssd=$(gum input --header "Enter SSD mount path:" --value "$SSD") || { return 0; }
+				if [[ -n "$new_ssd" ]] && mountpoint -q "$new_ssd" 2>/dev/null; then
+					save_config "SSD_PATH" "$new_ssd"
+					load_config
+					success "SSD path updated to $SSD"
+				else
+					error "Path not mounted: $new_ssd"
+					pause
+					continue
+				fi
+			else
+				return 0
+			fi
+		fi
+
 		clear
-		header "Restore"
-		error "SSD not mounted at $SSD"
-		pause
-		return
-	fi
+		header "Restore from SSD"
 
-	clear
-	header "Restore from SSD"
+		local backups
+		mapfile -t backups < <(backup_list)
 
-	local backups
-	mapfile -t backups < <(backup_list)
+		if [[ ${#backups[@]} -eq 0 ]]; then
+			warn "No backups found on SSD"
+			pause
+			return
+		fi
 
-	if [[ ${#backups[@]} -eq 0 ]]; then
-		warn "No backups found on SSD"
-		pause
-		return
-	fi
+		# Show available backups
+		gum style --foreground 240 "  Available backups:"
+		for b in "${backups[@]}"; do
+			local size contents
+			size=$(du -sh "$b" 2>/dev/null | cut -f1)
+			contents=$(ls -1 "$b" 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+			info "$(basename "$b")  $size  [$contents]"
+		done
+		echo ""
 
-	# Show available backups
-	gum style --foreground 240 "  Available backups:"
-	for b in "${backups[@]}"; do
-		local size contents
-		size=$(du -sh "$b" 2>/dev/null | cut -f1)
-		contents=$(ls -1 "$b" 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
-		info "$(basename "$b")  $size  [$contents]"
+		local choice
+		choice=$(gum choose \
+			--header "Restore mode:" \
+			--height 8 \
+			"Restore All from Latest" \
+			"Restore Specific Projects" \
+			"Restore Subfolder" \
+			"Choose Backup Version" \
+			"Dry Run (preview)" \
+			"Back" \
+		) || return 0
+
+		case "$choice" in
+			"Restore All from Latest")
+				do_restore_latest
+				;;
+			"Restore Specific Projects")
+				do_restore_select_projects
+				;;
+			"Restore Subfolder")
+				do_restore_subfolder
+				;;
+			"Choose Backup Version")
+				do_restore_from_specific
+				;;
+			"Dry Run (preview)")
+				do_restore_dry
+				;;
+			"Back") return 0 ;;
+		esac
 	done
-	echo ""
-
-	local choice
-	choice=$(gum choose \
-		--header "Restore mode:" \
-		--height 8 \
-		"Restore All from Latest" \
-		"Restore Specific Projects" \
-		"Restore Subfolder" \
-		"Choose Backup Version" \
-		"Dry Run (preview)" \
-		"Back" \
-	) || return 0
-
-	case "$choice" in
-		"Restore All from Latest")
-			do_restore_latest
-			;;
-		"Restore Specific Projects")
-			do_restore_select_projects
-			;;
-		"Restore Subfolder")
-			do_restore_subfolder
-			;;
-		"Choose Backup Version")
-			do_restore_from_specific
-			;;
-		"Dry Run (preview)")
-			do_restore_dry
-			;;
-		"Back") return 0 ;;
-	esac
 }
 
 do_restore_latest() {
@@ -1221,143 +1229,282 @@ do_restore_dry() {
 # -----------------------------------------------------------------------
 # Secrets (SSH Keys + .env files — age SSD + Bitwarden)
 # -----------------------------------------------------------------------
-SSH_BACKUP_DIR="$SSD/ssh-keys"
-ENV_BACKUP_DIR="$SSD/env-secrets"
 
 menu_secrets() {
-	clear
-	header "Secrets"
+	while true; do
+		clear
+		header "Secrets"
 
-	# SSH key status
-	if [[ -d "$HOME/.ssh" ]]; then
-		local key_count=0
-		for f in "$HOME/.ssh"/id_*; do
-			[[ -f "$f" && "$f" != *.pub ]] && key_count=$(( key_count + 1 ))
-		done
-		info "SSH: $key_count private key(s) in ~/.ssh/"
-	else
-		warn "SSH: no ~/.ssh/ directory"
-	fi
+		# SSH key status
+		if [[ -d "$HOME/.ssh" ]]; then
+			local key_count=0
+			for f in "$HOME/.ssh"/id_*; do
+				[[ -f "$f" && "$f" != *.pub ]] && key_count=$(( key_count + 1 ))
+			done
+			info "SSH: $key_count private key(s) in ~/.ssh/"
+		else
+			warn "SSH: no ~/.ssh/ directory"
+		fi
 
-	# SSD backup status
-	if mountpoint -q "$SSD" 2>/dev/null; then
-		local ssh_count=0 env_count=0
-		[[ -d "$SSH_BACKUP_DIR" ]] && ssh_count=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
-		[[ -d "$ENV_BACKUP_DIR" ]] && env_count=$(find "$ENV_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
-		info "SSD: $ssh_count SSH backup(s), $env_count env backup(s)"
-	else
-		error "SSD: not mounted"
-	fi
+		# SSD backup status
+		if check_ssd; then
+			local ssh_count=0 env_count=0
+			[[ -d "$SSH_BACKUP_DIR" ]] && ssh_count=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+			[[ -d "$ENV_BACKUP_DIR" ]] && env_count=$(find "$ENV_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+			info "SSD: $ssh_count SSH backup(s), $env_count env backup(s)"
+		else
+			error "SSD: not mounted"
+		fi
 
-	# Bitwarden status
-	if command -v bw &>/dev/null; then
-		local bw_status
-		bw_status=$(bw status 2>/dev/null | jq -r '.status' 2>/dev/null || echo "unknown")
-		info "Bitwarden: $bw_status"
-	else
-		gum style --foreground 240 "  Bitwarden: not installed"
-	fi
+		# Bitwarden status
+		if command -v bw &>/dev/null; then
+			local bw_status
+			bw_status=$(bw status 2>/dev/null | jq -r '.status' 2>/dev/null || echo "unknown")
+			info "Bitwarden: $bw_status"
+		else
+			gum style --foreground 240 "  Bitwarden: not installed"
+		fi
 
-	echo ""
+		echo ""
 
-	local choice
-	choice=$(gum choose \
-		--header "Secrets management:" \
-		--height 9 \
-		"SSH Keys" \
-		"Env Files" \
-		"List All Secrets" \
-		"View Local SSH Keys" \
-		"Back" \
-	) || return 0
+		local choice
+		choice=$(gum choose \
+			--header "Secrets management:" \
+			--height 9 \
+			"SSH Keys" \
+			"Env Files" \
+			"List All Secrets" \
+			"View Local SSH Keys" \
+			"Back" \
+		) || return 0
 
-	case "$choice" in
-		"SSH Keys")        menu_secrets_ssh ;;
-		"Env Files")       menu_secrets_env ;;
-		"List All Secrets")
-			echo ""
-			"$DEV_ENV/secrets" --list
-			pause
-			;;
-		"View Local SSH Keys") do_ssh_view ;;
-		"Back") return 0 ;;
-	esac
+		case "$choice" in
+			"SSH Keys")        menu_secrets_ssh ;;
+			"Env Files")       menu_secrets_env ;;
+			"List All Secrets")
+				echo ""
+				"$DEV_ENV/secrets" --list
+				pause
+				;;
+			"View Local SSH Keys") do_ssh_view ;;
+			"Back") return 0 ;;
+		esac
+	done
 }
 
 menu_secrets_ssh() {
-	clear
-	header "SSH Keys"
+	while true; do
+		clear
+		header "SSH Keys"
 
-	# Show current status
-	if [[ -d "$HOME/.ssh" ]]; then
-		local key_count=0
-		for f in "$HOME/.ssh"/id_*; do
-			[[ -f "$f" && "$f" != *.pub ]] && key_count=$(( key_count + 1 ))
+		# Show current status
+		if [[ -d "$HOME/.ssh" ]]; then
+			local key_count=0
+			for f in "$HOME/.ssh"/id_*; do
+				[[ -f "$f" && "$f" != *.pub ]] && key_count=$(( key_count + 1 ))
+			done
+			info "Local: $key_count private key(s)"
+		else
+			warn "Local: no ~/.ssh/ directory"
+		fi
+
+		if check_ssd && [[ -d "$SSH_BACKUP_DIR" ]]; then
+			local ssh_count
+			ssh_count=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+			info "SSD: $ssh_count age-encrypted backup(s)"
+		fi
+
+		if command -v bw &>/dev/null; then
+			info "Bitwarden: available"
+		fi
+
+		echo ""
+
+		local choice
+		choice=$(gum choose \
+			--header "SSH key operations:" \
+			--height 10 \
+			"Backup to SSD (age)" \
+			"Backup to Bitwarden" \
+			"Restore from SSD (age)" \
+			"Restore from Bitwarden" \
+			"Setup SSH on Remote Server" \
+			"Dry Run (SSD)" \
+			"Back" \
+		) || return 0
+
+		case "$choice" in
+			"Backup to SSD (age)")
+				echo ""
+				if gum confirm "Encrypt SSH keys and save to SSD?"; then
+					echo ""
+					"$DEV_ENV/secrets" ssh backup
+				fi
+				pause
+				;;
+			"Backup to Bitwarden")
+				echo ""
+				if gum confirm "Store SSH keys in Bitwarden vault?"; then
+					echo ""
+					"$DEV_ENV/secrets" ssh backup --bw
+				fi
+				pause
+				;;
+			"Restore from SSD (age)")
+				do_ssh_restore_age
+				;;
+			"Restore from Bitwarden")
+				echo ""
+				if gum confirm "Restore SSH keys from Bitwarden?"; then
+					echo ""
+					"$DEV_ENV/secrets" ssh restore --bw
+				fi
+				pause
+				;;
+			"Setup SSH on Remote Server")
+				do_ssh_setup_guide
+				;;
+			"Dry Run (SSD)")
+				echo ""
+				"$DEV_ENV/secrets" ssh backup --dry
+				pause
+				;;
+			"Back") return 0 ;;
+		esac
+	done
+}
+
+do_ssh_setup_guide() {
+	while true; do
+		clear
+		header "Setup SSH on Remote Server"
+
+		# Detect available keys
+		local keys=()
+		for f in "$HOME/.ssh"/id_*.pub; do
+			[[ -f "$f" ]] && keys+=("$f")
 		done
-		info "Local: $key_count private key(s)"
-	else
-		warn "Local: no ~/.ssh/ directory"
-	fi
 
-	if mountpoint -q "$SSD" 2>/dev/null && [[ -d "$SSH_BACKUP_DIR" ]]; then
-		local ssh_count
-		ssh_count=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
-		info "SSD: $ssh_count age-encrypted backup(s)"
-	fi
+		if [[ ${#keys[@]} -gt 0 ]]; then
+			info "Found ${#keys[@]} public key(s):"
+			for k in "${keys[@]}"; do
+				gum style --foreground 78 "  $(basename "$k")"
+			done
+		else
+			warn "No SSH keys found in ~/.ssh/"
+		fi
+		echo ""
 
-	if command -v bw &>/dev/null; then
-		info "Bitwarden: available"
-	fi
+		local choice
+		choice=$(gum choose \
+			--header "What would you like to do?" \
+			--height 8 \
+			"Copy key to server (ssh-copy-id)" \
+			"Test connection" \
+			"View reference guide" \
+			"Back" \
+		) || return 0
 
-	echo ""
+		case "$choice" in
+			"Copy key to server (ssh-copy-id)")
+				if [[ ${#keys[@]} -eq 0 ]]; then
+					error "No public keys found. Generate one first:"
+					gum style --foreground 78 "  ssh-keygen -t ed25519"
+					pause
+					continue
+				fi
 
-	local choice
-	choice=$(gum choose \
-		--header "SSH key operations:" \
-		--height 10 \
-		"Backup to SSD (age)" \
-		"Backup to Bitwarden" \
-		"Restore from SSD (age)" \
-		"Restore from Bitwarden" \
-		"Dry Run (SSD)" \
-		"Back" \
-	) || return 0
+				# Pick key if multiple
+				local selected_key
+				if [[ ${#keys[@]} -eq 1 ]]; then
+					selected_key="${keys[0]}"
+				else
+					selected_key=$(printf '%s\n' "${keys[@]}" | xargs -I{} basename {} | gum choose --header "Select public key:") || continue
+					selected_key="$HOME/.ssh/$selected_key"
+				fi
 
-	case "$choice" in
-		"Backup to SSD (age)")
-			echo ""
-			if gum confirm "Encrypt SSH keys and save to SSD?"; then
+				# Get user@host
+				local remote
+				remote=$(gum input \
+					--header "Enter user@host (e.g. deploy@192.168.1.100):" \
+					--placeholder "user@server" \
+				) || continue
+
+				if [[ -z "$remote" ]]; then
+					error "No remote specified"
+					pause
+					continue
+				fi
+
 				echo ""
-				"$DEV_ENV/secrets" ssh backup
-			fi
-			pause
-			;;
-		"Backup to Bitwarden")
-			echo ""
-			if gum confirm "Store SSH keys in Bitwarden vault?"; then
+				info "Copying $(basename "$selected_key") → $remote"
 				echo ""
-				"$DEV_ENV/secrets" ssh backup --bw
-			fi
-			pause
-			;;
-		"Restore from SSD (age)")
-			do_ssh_restore_age
-			;;
-		"Restore from Bitwarden")
-			echo ""
-			if gum confirm "Restore SSH keys from Bitwarden?"; then
+				ssh-copy-id -i "$selected_key" "$remote"
 				echo ""
-				"$DEV_ENV/secrets" ssh restore --bw
-			fi
-			pause
-			;;
-		"Dry Run (SSD)")
-			echo ""
-			"$DEV_ENV/secrets" ssh backup --dry
-			pause
-			;;
-		"Back") return 0 ;;
-	esac
+				success "Done! Test with: ssh $remote"
+				pause
+				;;
+			"Test connection")
+				local remote
+				remote=$(gum input \
+					--header "Enter connection to test (e.g. user@server or git@github.com):" \
+					--placeholder "user@server" \
+				) || continue
+
+				if [[ -z "$remote" ]]; then
+					continue
+				fi
+
+				echo ""
+				info "Testing connection to $remote..."
+				echo ""
+				if [[ "$remote" == *"github.com"* ]]; then
+					ssh -T "$remote" 2>&1 || true
+				else
+					ssh -o ConnectTimeout=5 "$remote" echo "Connection successful" 2>&1 || true
+				fi
+				pause
+				;;
+			"View reference guide")
+				clear
+				header "SSH Reference Guide"
+
+				gum style --foreground 212 --bold "  Generate a new key:"
+				gum style --foreground 78 "  ssh-keygen -t ed25519 -C \"your_email@example.com\""
+				echo ""
+
+				divider
+
+				gum style --foreground 212 --bold "  Copy key to server:"
+				gum style --foreground 78 "  ssh-copy-id -i ~/.ssh/id_ed25519.pub user@server"
+				echo ""
+
+				divider
+
+				gum style --foreground 212 --bold "  Manual copy (if ssh-copy-id unavailable):"
+				gum style --foreground 240 "  1. Copy your public key:"
+				gum style --foreground 78 "     cat ~/.ssh/id_ed25519.pub"
+				gum style --foreground 240 "  2. On the remote server:"
+				gum style --foreground 78 "     mkdir -p ~/.ssh && chmod 700 ~/.ssh"
+				gum style --foreground 78 "     echo 'PASTE_KEY_HERE' >> ~/.ssh/authorized_keys"
+				gum style --foreground 78 "     chmod 600 ~/.ssh/authorized_keys"
+				echo ""
+
+				divider
+
+				gum style --foreground 212 --bold "  ~/.ssh/config shortcut:"
+				gum style --foreground 78 "  Host myserver"
+				gum style --foreground 78 "      HostName 192.168.1.100"
+				gum style --foreground 78 "      User deploy"
+				gum style --foreground 78 "      IdentityFile ~/.ssh/id_ed25519"
+				echo ""
+				gum style --foreground 240 "  Then connect with: ssh myserver"
+
+				pause
+				;;
+			"Back") return 0 ;;
+		esac
+	done
 }
 
 do_ssh_restore_age() {
@@ -1407,90 +1554,347 @@ do_ssh_restore_age() {
 	pause
 }
 
+get_project_alias() {
+	local dirname="$1"
+	if [[ -f "$ENV_ALIAS_FILE" ]]; then
+		local alias
+		alias=$(grep "^${dirname}=" "$ENV_ALIAS_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
+		if [[ -n "$alias" ]]; then
+			echo "$alias"
+			return
+		fi
+	fi
+	echo "$dirname"
+}
+
+env_projects() {
+	# Discover projects that contain .env* files
+	local projects=()
+	for d in "$PROJECTS_DIR"/*/; do
+		[[ -d "$d" ]] || continue
+		local name
+		name=$(basename "$d")
+		[[ "$name" == ".git" || "$name" == "node_modules" || "$name" == ".cache" ]] && continue
+		[[ "$name" == ".ror" || "$name" == ".playwright-mcp" ]] && continue
+		local has_env=0
+		while read -r f; do
+			[[ -f "$f" ]] && { has_env=1; break; }
+		done < <(find "$d" -maxdepth 3 \
+			\( -name ".env" -o -name ".env.local" -o -name ".env.production" -o -name ".env.development" \) \
+			2>/dev/null | grep -v node_modules | grep -v .git/ | grep -v __pycache__ | grep -v .venv | grep -v .conda | head -1)
+		[[ $has_env -eq 1 ]] && projects+=("$name")
+	done
+	printf '%s\n' "${projects[@]}"
+}
+
+pick_env_project() {
+	local header="${1:-Select project:}"
+	local projects
+	mapfile -t projects < <(env_projects)
+	if [[ ${#projects[@]} -eq 0 ]]; then
+		error "No projects with .env files found"
+		return 1
+	fi
+	# Build display labels: "Alias (dirname)" or just "dirname"
+	local labels=()
+	for p in "${projects[@]}"; do
+		local alias
+		alias=$(get_project_alias "$p")
+		if [[ "$alias" != "$p" ]]; then
+			labels+=("$alias ($p)")
+		else
+			labels+=("$p")
+		fi
+	done
+	local selection
+	selection=$(printf '%s\n' "${labels[@]}" | gum choose --header "$header" --height 15) || return 1
+	# Extract dirname: if selection has parentheses, grab the dirname from inside
+	local re='\(([^)]+)\)$'
+	if [[ "$selection" =~ $re ]]; then
+		echo "${BASH_REMATCH[1]}"
+	else
+		echo "$selection"
+	fi
+}
+
 menu_secrets_env() {
-	clear
-	header "Env Files"
+	while true; do
+		clear
+		header "Env Files"
 
-	# Show .env count
-	local env_count=0
-	while read -r f; do
-		[[ -f "$f" ]] && env_count=$(( env_count + 1 ))
-	done < <(find "$HOME/Personal" -maxdepth 4 \
-		\( -name ".env" -o -name ".env.local" -o -name ".env.production" -o -name ".env.development" \) \
-		2>/dev/null | grep -v node_modules | grep -v .git/ | grep -v __pycache__ | grep -v .venv | grep -v .conda)
+		# Show .env count
+		local env_count=0
+		while read -r f; do
+			[[ -f "$f" ]] && env_count=$(( env_count + 1 ))
+		done < <(find "$PROJECTS_DIR" -maxdepth 4 \
+			\( -name ".env" -o -name ".env.local" -o -name ".env.production" -o -name ".env.development" \) \
+			2>/dev/null | grep -v node_modules | grep -v .git/ | grep -v __pycache__ | grep -v .venv | grep -v .conda)
 
-	info "Local: $env_count .env file(s) in projects"
+		info "Local: $env_count .env file(s) in projects"
 
-	if mountpoint -q "$SSD" 2>/dev/null && [[ -d "$ENV_BACKUP_DIR" ]]; then
-		local backup_count
-		backup_count=$(find "$ENV_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
-		info "SSD: $backup_count age-encrypted backup(s)"
-	fi
+		if check_ssd && [[ -d "$ENV_BACKUP_DIR" ]]; then
+			local backup_count
+			backup_count=$(find "$ENV_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+			info "SSD: $backup_count age-encrypted backup(s)"
+		fi
 
-	if command -v bw &>/dev/null; then
-		info "Bitwarden: available"
-	fi
+		if command -v bw &>/dev/null; then
+			info "Bitwarden: available"
+		fi
 
-	echo ""
+		echo ""
 
-	local choice
-	choice=$(gum choose \
-		--header "Env file operations:" \
-		--height 10 \
-		"Backup to SSD (age)" \
-		"Backup to Bitwarden" \
-		"Restore from SSD (age)" \
-		"Restore from Bitwarden" \
-		"List Env Files" \
-		"Dry Run (SSD)" \
-		"Back" \
-	) || return 0
+		local choice
+		choice=$(gum choose \
+			--header "Env file operations:" \
+			--height 17 \
+			"Backup All (SSD)" \
+			"Backup All (Bitwarden)" \
+			"Backup Project (SSD)" \
+			"Backup Project (Bitwarden)" \
+			"Restore All (SSD)" \
+			"Restore All (Bitwarden)" \
+			"Restore Project (SSD)" \
+			"Restore Project (Bitwarden)" \
+			"Copy Env (cross-project)" \
+			"List Env Files" \
+			"List Project Env Files" \
+			"Manage Aliases" \
+			"Dry Run (SSD)" \
+			"Back" \
+		) || return 0
 
-	case "$choice" in
-		"Backup to SSD (age)")
-			echo ""
-			if gum confirm "Encrypt .env files and save to SSD?"; then
+		case "$choice" in
+			"Backup All (SSD)")
 				echo ""
-				"$DEV_ENV/secrets" env backup
-			fi
-			pause
-			;;
-		"Backup to Bitwarden")
-			echo ""
-			if gum confirm "Store .env files in Bitwarden vault?"; then
+				if gum confirm "Encrypt all .env files and save to SSD?"; then
+					echo ""
+					"$DEV_ENV/secrets" env backup
+				fi
+				pause
+				;;
+			"Backup All (Bitwarden)")
 				echo ""
-				"$DEV_ENV/secrets" env backup --bw
-			fi
-			pause
-			;;
-		"Restore from SSD (age)")
-			echo ""
-			if gum confirm "Restore .env files from SSD?"; then
+				if gum confirm "Store all .env files in Bitwarden vault?"; then
+					echo ""
+					"$DEV_ENV/secrets" env backup --bw
+				fi
+				pause
+				;;
+			"Backup Project (SSD)")
+				local proj
+				proj=$(pick_env_project "Select project to backup (SSD):") || { pause; continue; }
 				echo ""
-				"$DEV_ENV/secrets" env restore
-			fi
-			pause
-			;;
-		"Restore from Bitwarden")
-			echo ""
-			if gum confirm "Restore .env files from Bitwarden?"; then
+				if gum confirm "Encrypt $proj .env files to SSD?"; then
+					echo ""
+					"$DEV_ENV/secrets" env backup "$proj"
+				fi
+				pause
+				;;
+			"Backup Project (Bitwarden)")
+				local proj
+				proj=$(pick_env_project "Select project to backup (Bitwarden):") || { pause; continue; }
 				echo ""
-				"$DEV_ENV/secrets" env restore --bw
-			fi
-			pause
-			;;
-		"List Env Files")
-			echo ""
-			"$DEV_ENV/secrets" env list
-			pause
-			;;
-		"Dry Run (SSD)")
-			echo ""
-			"$DEV_ENV/secrets" env backup --dry
-			pause
-			;;
-		"Back") return 0 ;;
-	esac
+				if gum confirm "Store $proj .env files in Bitwarden?"; then
+					echo ""
+					"$DEV_ENV/secrets" env backup "$proj" --bw
+				fi
+				pause
+				;;
+			"Restore All (SSD)")
+				echo ""
+				if gum confirm "Restore all .env files from SSD?"; then
+					echo ""
+					"$DEV_ENV/secrets" env restore
+				fi
+				pause
+				;;
+			"Restore All (Bitwarden)")
+				echo ""
+				if gum confirm "Restore all .env files from Bitwarden?"; then
+					echo ""
+					"$DEV_ENV/secrets" env restore --bw
+				fi
+				pause
+				;;
+			"Restore Project (SSD)")
+				local proj
+				proj=$(pick_env_project "Select project to restore (SSD):") || { pause; continue; }
+				echo ""
+				if gum confirm "Restore $proj .env files from SSD?"; then
+					echo ""
+					"$DEV_ENV/secrets" env restore "$proj"
+				fi
+				pause
+				;;
+			"Restore Project (Bitwarden)")
+				local proj
+				proj=$(pick_env_project "Select project to restore (Bitwarden):") || { pause; continue; }
+				echo ""
+				if gum confirm "Restore $proj .env files from Bitwarden?"; then
+					echo ""
+					"$DEV_ENV/secrets" env restore "$proj" --bw
+				fi
+				pause
+				;;
+			"Copy Env (cross-project)")
+				local src_proj dest_proj
+				src_proj=$(pick_env_project "Select SOURCE project:") || { pause; continue; }
+				dest_proj=$(pick_env_project "Select DESTINATION project:") || { pause; continue; }
+				if [[ "$src_proj" == "$dest_proj" ]]; then
+					error "Source and destination are the same"
+					pause
+					continue
+				fi
+				echo ""
+				if gum confirm "Copy .env from $src_proj → $dest_proj (via SSD backup)?"; then
+					echo ""
+					"$DEV_ENV/secrets" env restore "$src_proj" --to "$dest_proj"
+				fi
+				pause
+				;;
+			"List Env Files")
+				echo ""
+				"$DEV_ENV/secrets" env list
+				pause
+				;;
+			"List Project Env Files")
+				local proj
+				proj=$(pick_env_project "Select project to list:") || { pause; continue; }
+				echo ""
+				"$DEV_ENV/secrets" env list "$proj"
+				pause
+				;;
+			"Manage Aliases")
+				do_manage_aliases
+				;;
+			"Dry Run (SSD)")
+				echo ""
+				"$DEV_ENV/secrets" env backup --dry
+				pause
+				;;
+			"Back") return 0 ;;
+		esac
+	done
+}
+
+do_manage_aliases() {
+	while true; do
+		clear
+		header "Manage Aliases"
+
+		local choice
+		choice=$(gum choose \
+			--header "Alias operations:" \
+			--height 7 \
+			"View Aliases" \
+			"Set Alias" \
+			"Remove Alias" \
+			"Back" \
+		) || return 0
+
+		case "$choice" in
+			"View Aliases")
+				echo ""
+				if [[ -f "$ENV_ALIAS_FILE" ]] && [[ -s "$ENV_ALIAS_FILE" ]]; then
+					info "Current aliases ($ENV_ALIAS_FILE):"
+					echo ""
+					while IFS='=' read -r dirname alias; do
+						[[ -z "$dirname" || "$dirname" == \#* ]] && continue
+						success "  $dirname = $alias"
+					done < "$ENV_ALIAS_FILE"
+				else
+					warn "No aliases set"
+				fi
+				pause
+				;;
+			"Set Alias")
+				# Pick from all env projects (show raw dirnames for clarity)
+				local projects
+				mapfile -t projects < <(env_projects)
+				if [[ ${#projects[@]} -eq 0 ]]; then
+					error "No projects with .env files found"
+					pause
+					continue
+				fi
+				# Show current alias next to each project
+				local labels=()
+				for p in "${projects[@]}"; do
+					local current
+					current=$(get_project_alias "$p")
+					if [[ "$current" != "$p" ]]; then
+						labels+=("$p  (current: $current)")
+					else
+						labels+=("$p")
+					fi
+				done
+				echo ""
+				local selected
+				selected=$(printf '%s\n' "${labels[@]}" | gum choose \
+					--header "Select project to alias:" \
+					--height 15 \
+				) || { continue; }
+				local dirname
+				dirname=$(echo "$selected" | awk '{print $1}')
+				local current_alias
+				current_alias=$(get_project_alias "$dirname")
+				local placeholder=""
+				[[ "$current_alias" != "$dirname" ]] && placeholder="$current_alias"
+				local new_alias
+				new_alias=$(gum input \
+					--header "Display name for $dirname:" \
+					--placeholder "${placeholder:-Enter alias}" \
+					--value "$placeholder" \
+				) || { continue; }
+				if [[ -z "$new_alias" ]]; then
+					warn "Empty alias — skipped"
+					pause
+					continue
+				fi
+				# Write alias to file
+				mkdir -p "$(dirname "$ENV_ALIAS_FILE")"
+				if [[ -f "$ENV_ALIAS_FILE" ]] && grep -q "^${dirname}=" "$ENV_ALIAS_FILE" 2>/dev/null; then
+					# Update existing entry
+					sed -i "s|^${dirname}=.*|${dirname}=${new_alias}|" "$ENV_ALIAS_FILE"
+				else
+					echo "${dirname}=${new_alias}" >> "$ENV_ALIAS_FILE"
+				fi
+				echo ""
+				success "Alias set: $dirname = $new_alias"
+				pause
+				;;
+			"Remove Alias")
+				if [[ ! -f "$ENV_ALIAS_FILE" ]] || [[ ! -s "$ENV_ALIAS_FILE" ]]; then
+					warn "No aliases to remove"
+					pause
+					continue
+				fi
+				local aliases=()
+				while IFS='=' read -r dirname alias; do
+					[[ -z "$dirname" || "$dirname" == \#* ]] && continue
+					aliases+=("$dirname = $alias")
+				done < "$ENV_ALIAS_FILE"
+				if [[ ${#aliases[@]} -eq 0 ]]; then
+					warn "No aliases to remove"
+					pause
+					continue
+				fi
+				echo ""
+				local selected
+				selected=$(printf '%s\n' "${aliases[@]}" | gum choose \
+					--header "Select alias to remove:" \
+					--height 10 \
+				) || { continue; }
+				local dirname
+				dirname=$(echo "$selected" | cut -d' ' -f1)
+				sed -i "/^${dirname}=/d" "$ENV_ALIAS_FILE"
+				echo ""
+				success "Removed alias for $dirname"
+				pause
+				;;
+			"Back") return 0 ;;
+		esac
+	done
 }
 
 do_ssh_view() {
@@ -1526,6 +1930,88 @@ do_ssh_view() {
 	done
 
 	pause
+}
+
+# -----------------------------------------------------------------------
+# Settings
+# -----------------------------------------------------------------------
+menu_settings() {
+	while true; do
+		clear
+		header "Settings"
+
+		info "Config file: $DEV_ENV_CONFIG_FILE"
+		echo ""
+
+		local choice
+		choice=$(gum choose \
+			--header "Settings:" \
+			--height 9 \
+			"Change SSD Path" \
+			"Change Projects Directory" \
+			"Change Sources" \
+			"View Config File" \
+			"Reset to Defaults" \
+			"Back" \
+		) || return 0
+
+		case "$choice" in
+			"Change SSD Path")
+				local new_val
+				new_val=$(gum input --header "SSD mount path:" --value "$SSD") || continue
+				if [[ -n "$new_val" ]]; then
+					save_config "SSD_PATH" "$new_val"
+					load_config
+					success "SSD path set to: $SSD"
+					pause
+				fi
+				;;
+			"Change Projects Directory")
+				local new_val
+				new_val=$(gum input --header "Projects directory:" --value "$PROJECTS_DIR") || continue
+				if [[ -n "$new_val" ]]; then
+					save_config "PROJECTS_DIR" "$new_val"
+					load_config
+					success "Projects directory set to: $PROJECTS_DIR"
+					pause
+				fi
+				;;
+			"Change Sources")
+				local current_sources
+				current_sources=$(IFS=','; echo "${SOURCES[*]}")
+				local new_val
+				new_val=$(gum input --header "Sources (comma-separated):" --value "$current_sources") || continue
+				if [[ -n "$new_val" ]]; then
+					save_config "SOURCES" "$new_val"
+					load_config
+					success "Sources set to: ${SOURCES[*]}"
+					pause
+				fi
+				;;
+			"View Config File")
+				echo ""
+				if [[ -f "$DEV_ENV_CONFIG_FILE" ]]; then
+					gum style --foreground 240 "  $DEV_ENV_CONFIG_FILE:"
+					echo ""
+					while IFS= read -r line; do
+						info "  $line"
+					done < "$DEV_ENV_CONFIG_FILE"
+				else
+					warn "No config file found"
+				fi
+				pause
+				;;
+			"Reset to Defaults")
+				if gum confirm "Reset all settings to defaults?"; then
+					rm -f "$DEV_ENV_CONFIG_FILE"
+					load_config
+					success "Config reset to defaults"
+					pause
+				fi
+				;;
+			"Back") return 0 ;;
+		esac
+	done
 }
 
 # -----------------------------------------------------------------------
@@ -1639,6 +2125,63 @@ menu_status() {
 }
 
 # -----------------------------------------------------------------------
+# First-run wizard
+# -----------------------------------------------------------------------
+first_run_wizard() {
+	if [[ -f "$DEV_ENV_CONFIG_FILE" ]]; then
+		return
+	fi
+
+	clear
+	header "Welcome to Dev Environment"
+
+	gum style --foreground 240 "  First time setup — configure your defaults."
+	echo ""
+
+	# SSD path
+	local ssd_path
+	ssd_path=$(gum input \
+		--header "SSD mount path:" \
+		--value "$_DEFAULT_SSD_PATH" \
+		--placeholder "/run/media/$USER/TRANSCEND" \
+	) || ssd_path="$_DEFAULT_SSD_PATH"
+	[[ -z "$ssd_path" ]] && ssd_path="$_DEFAULT_SSD_PATH"
+
+	# Projects directory
+	local projects_dir
+	projects_dir=$(gum input \
+		--header "Projects directory:" \
+		--value "$_DEFAULT_PROJECTS_DIR" \
+		--placeholder "$HOME/Personal" \
+	) || projects_dir="$_DEFAULT_PROJECTS_DIR"
+	[[ -z "$projects_dir" ]] && projects_dir="$_DEFAULT_PROJECTS_DIR"
+
+	# Sources
+	local sources
+	sources=$(gum input \
+		--header "Source directories to backup (comma-separated):" \
+		--value "$_DEFAULT_SOURCES" \
+		--placeholder "Personal" \
+	) || sources="$_DEFAULT_SOURCES"
+	[[ -z "$sources" ]] && sources="$_DEFAULT_SOURCES"
+
+	# Save config
+	mkdir -p "$DEV_ENV_CONFIG_DIR"
+	cat > "$DEV_ENV_CONFIG_FILE" <<-EOF
+	SSD_PATH=$ssd_path
+	PROJECTS_DIR=$projects_dir
+	SOURCES=$sources
+	EOF
+
+	load_config
+
+	echo ""
+	success "Config saved to $DEV_ENV_CONFIG_FILE"
+	pause
+}
+
+# -----------------------------------------------------------------------
 # Entry point
 # -----------------------------------------------------------------------
+first_run_wizard
 main_menu

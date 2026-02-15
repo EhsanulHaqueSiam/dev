@@ -1,18 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-dry_run="0"
-if [[ "${1:-}" == "--dry" ]]; then
-	dry_run="1"
-fi
-
 if [ -z "${XDG_CONFIG_HOME:-}" ]; then
 	XDG_CONFIG_HOME="$HOME/.config"
 fi
 
-# Auto-detect DEV_ENV from script location if not set
+# Resolve DEV_ENV — the path to the dev repo (not this script's install location)
+# Priority: 1) DEV_ENV env var  2) saved in config  3) script location (only works when run from repo)
+_dev_env_config="${XDG_CONFIG_HOME}/dev-env/config"
 if [ -z "${DEV_ENV:-}" ]; then
-	DEV_ENV="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+	# Try reading from config file
+	if [ -f "$_dev_env_config" ] && grep -q '^DEV_ENV_PATH=' "$_dev_env_config" 2>/dev/null; then
+		DEV_ENV="$(grep '^DEV_ENV_PATH=' "$_dev_env_config" | head -1 | cut -d= -f2-)"
+	fi
+fi
+if [ -z "${DEV_ENV:-}" ]; then
+	# Fall back to script location (works when run directly from repo)
+	_self="${BASH_SOURCE[0]}"
+	while [[ -L "$_self" ]]; do
+		_dir="$(cd "$(dirname "$_self")" &>/dev/null && pwd)"
+		_self="$(readlink "$_self")"
+		[[ "$_self" != /* ]] && _self="$_dir/$_self"
+	done
+	DEV_ENV="$(cd "$(dirname "$_self")" &>/dev/null && pwd)"
+	unset _self _dir
+fi
+
+# Validate: DEV_ENV must contain env/ directory
+if [ ! -d "$DEV_ENV/env" ]; then
+	echo -e "\033[0;31m[dev-env]\033[0m cannot find repo at $DEV_ENV (no env/ directory)"
+	echo -e "\033[0;31m[dev-env]\033[0m run ./dev-env from the repo first, or set DEV_ENV"
+	exit 1
 fi
 
 # Colors
@@ -27,6 +45,33 @@ log()  { echo -e "${GREEN}[dev-env]${NC} $1"; }
 warn() { echo -e "${YELLOW}[dev-env]${NC} $1"; }
 err()  { echo -e "${RED}[dev-env]${NC} $1"; }
 
+# -----------------------------------------------------------------------
+# Parse arguments
+# -----------------------------------------------------------------------
+dry_run="0"
+mode="deploy"
+capture_path=""
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--dry) dry_run="1" ;;
+		capture)
+			mode="capture"
+			shift
+			capture_path="${1:-}"
+			;;
+		update)
+			mode="update"
+			;;
+		deploy)
+			mode="deploy"
+			;;
+		*) ;;
+	esac
+	shift
+done
+
+# Backup existing file/dir before overwriting
 backup() {
 	local target="$1"
 	if [ -e "$target" ] && [ ! -L "$target" ]; then
@@ -46,8 +91,8 @@ dry() {
 	return 0
 }
 
-# Symlink a directory: remove existing target, create symlink
-link_dir() {
+# Copy a directory from repo to system, replacing existing
+copy_dir() {
 	local src="$1"
 	local dest="$2"
 
@@ -56,26 +101,20 @@ link_dir() {
 		return
 	fi
 
-	# Already correctly linked
-	if [ -L "$dest" ] && [ "$(readlink -f "$dest")" == "$(readlink -f "$src")" ]; then
-		log "  already linked: $dest"
-		return
-	fi
-
-	if dry "  would link: $src -> $dest"; then
-		# Backup and remove existing (file, dir, or broken symlink)
+	if dry "  would copy: $src -> $dest"; then
+		# Backup existing (only real files/dirs, not symlinks)
 		if [ -e "$dest" ] || [ -L "$dest" ]; then
 			backup "$dest"
-			log "  removing: $dest"
 			rm -rf "$dest"
 		fi
-		ln -sf "$src" "$dest"
-		log "  linked: $src -> $dest"
+		mkdir -p "$(dirname "$dest")"
+		cp -r "$src" "$dest"
+		log "  copied: $(basename "$src") -> $dest"
 	fi
 }
 
-# Symlink a file: remove existing target, create symlink
-link_file() {
+# Copy a file from repo to system, replacing existing
+copy_file() {
 	local src="$1"
 	local dest="$2"
 
@@ -84,79 +123,246 @@ link_file() {
 		return
 	fi
 
-	# Already correctly linked
-	if [ -L "$dest" ] && [ "$(readlink -f "$dest")" == "$(readlink -f "$src")" ]; then
-		log "  already linked: $dest"
-		return
-	fi
-
-	if dry "  would link: $src -> $dest"; then
+	if dry "  would copy: $src -> $dest"; then
 		if [ -e "$dest" ] || [ -L "$dest" ]; then
 			backup "$dest"
 			rm -f "$dest"
 		fi
-		ln -sf "$src" "$dest"
-		log "  linked: $src -> $dest"
+		mkdir -p "$(dirname "$dest")"
+		cp "$src" "$dest"
+		log "  copied: $(basename "$src") -> $dest"
 	fi
 }
 
 # -----------------------------------------------------------------------
-# .config/ directories — symlink each subdirectory
+# Deploy: copy configs from repo env/ to system
 # -----------------------------------------------------------------------
-log "linking .config directories..."
-mkdir -p "$XDG_CONFIG_HOME"
+do_deploy() {
+	# Save repo path so dev-env works from anywhere after deploy
+	mkdir -p "$(dirname "$_dev_env_config")"
+	if [ -f "$_dev_env_config" ] && grep -q '^DEV_ENV_PATH=' "$_dev_env_config" 2>/dev/null; then
+		sed -i "s|^DEV_ENV_PATH=.*|DEV_ENV_PATH=$DEV_ENV|" "$_dev_env_config"
+	else
+		echo "DEV_ENV_PATH=$DEV_ENV" >> "$_dev_env_config"
+	fi
+	log "saved repo path: $DEV_ENV"
 
-for dir in "$DEV_ENV"/env/.config/*/; do
-	[ -d "$dir" ] || continue
-	name="$(basename "$dir")"
-	link_dir "$DEV_ENV/env/.config/$name" "$XDG_CONFIG_HOME/$name"
-done
+	# .config/ directories
+	log "deploying .config directories..."
+	mkdir -p "$XDG_CONFIG_HOME"
 
-# -----------------------------------------------------------------------
-# .local/ directories — symlink each subdirectory
-# -----------------------------------------------------------------------
-if [ -d "$DEV_ENV/env/.local" ]; then
-	log "linking .local directories..."
-	for dir in "$DEV_ENV"/env/.local/*/; do
+	for dir in "$DEV_ENV"/env/.config/*/; do
 		[ -d "$dir" ] || continue
 		name="$(basename "$dir")"
-		mkdir -p "$HOME/.local/$name"
-		# For .local, link contents inside (scripts, bin) not the dir itself
-		for item in "$dir"*; do
-			[ -e "$item" ] || continue
-			link_file "$item" "$HOME/.local/$name/$(basename "$item")"
-		done
+		copy_dir "$DEV_ENV/env/.config/$name" "$XDG_CONFIG_HOME/$name"
 	done
-fi
 
-# -----------------------------------------------------------------------
-# Home dotfiles — symlink individual files (auto-detect)
-# -----------------------------------------------------------------------
-log "linking home dotfiles..."
+	# .config/ standalone files
+	for file in "$DEV_ENV"/env/.config/*; do
+		[ -f "$file" ] || continue
+		name="$(basename "$file")"
+		copy_file "$file" "$XDG_CONFIG_HOME/$name"
+	done
 
-for dotfile in "$DEV_ENV"/env/.*; do
-	[ -f "$dotfile" ] || continue
-	name="$(basename "$dotfile")"
-	[ "$name" = "." ] || [ "$name" = ".." ] && continue
-	link_file "$dotfile" "$HOME/$name"
-done
-
-# -----------------------------------------------------------------------
-# Self-install: make dev-env accessible from PATH
-# -----------------------------------------------------------------------
-mkdir -p "$HOME/.local/scripts"
-link_file "$DEV_ENV/dev-env" "$HOME/.local/scripts/dev-env"
-mkdir -p "$HOME/.local/bin"
-
-# -----------------------------------------------------------------------
-# Reload WM if available
-# -----------------------------------------------------------------------
-if command -v hyprctl &>/dev/null; then
-	log "reloading hyprland..."
-	if dry "  would run: hyprctl reload"; then
-		hyprctl reload
+	# .local/ directories
+	if [ -d "$DEV_ENV/env/.local" ]; then
+		log "deploying .local files..."
+		for dir in "$DEV_ENV"/env/.local/*/; do
+			[ -d "$dir" ] || continue
+			name="$(basename "$dir")"
+			mkdir -p "$HOME/.local/$name"
+			for item in "$dir"*; do
+				[ -e "$item" ] || continue
+				copy_file "$item" "$HOME/.local/$name/$(basename "$item")"
+			done
+		done
 	fi
-fi
 
-log "done! configs are symlinked — edits sync back to the repo automatically."
-log "just 'cd $DEV_ENV && git add -A && git commit && git push' to save changes."
+	# Home dotfiles
+	log "deploying home dotfiles..."
+	for dotfile in "$DEV_ENV"/env/.*; do
+		[ -f "$dotfile" ] || continue
+		name="$(basename "$dotfile")"
+		[ "$name" = "." ] || [ "$name" = ".." ] && continue
+		copy_file "$dotfile" "$HOME/$name"
+	done
+
+	# Self-install: copy dev-env to PATH
+	mkdir -p "$HOME/.local/scripts"
+	copy_file "$DEV_ENV/dev-env" "$HOME/.local/scripts/dev-env"
+	chmod +x "$HOME/.local/scripts/dev-env" 2>/dev/null || true
+	mkdir -p "$HOME/.local/bin"
+
+	# Reload WM if available
+	if command -v hyprctl &>/dev/null; then
+		log "reloading hyprland..."
+		if dry "  would run: hyprctl reload"; then
+			hyprctl reload
+		fi
+	fi
+
+	log "done! configs deployed (copied) to system."
+	log "to save live changes back: dev-env update"
+}
+
+# -----------------------------------------------------------------------
+# Capture: copy a live config into the repo
+# -----------------------------------------------------------------------
+do_capture() {
+	local src_path="$1"
+
+	# Expand ~ to $HOME
+	src_path="${src_path/#\~/$HOME}"
+
+	# Make absolute if relative
+	if [[ "$src_path" != /* ]]; then
+		src_path="$(pwd)/$src_path"
+	fi
+
+	# Normalize (remove trailing slash, resolve . and ..)
+	src_path="$(cd "$(dirname "$src_path")" 2>/dev/null && echo "$(pwd)/$(basename "$src_path")")" || {
+		err "path not found: $1"
+		return 1
+	}
+
+	if [[ ! -e "$src_path" ]]; then
+		err "path not found: $src_path"
+		return 1
+	fi
+
+	# Determine where it maps in env/
+	local dest_path=""
+
+	if [[ "$src_path" == "$XDG_CONFIG_HOME/"* ]]; then
+		# .config/ path — capture the top-level config dir/file
+		local rel="${src_path#$XDG_CONFIG_HOME/}"
+		local top_name="${rel%%/*}"
+		dest_path="$DEV_ENV/env/.config/$top_name"
+		# Always capture the whole top-level item
+		src_path="$XDG_CONFIG_HOME/$top_name"
+	elif [[ "$src_path" == "$HOME/.local/"* ]]; then
+		# .local/ path
+		local rel="${src_path#$HOME/.local/}"
+		dest_path="$DEV_ENV/env/.local/$rel"
+	elif [[ "$src_path" == "$HOME/."* ]]; then
+		# Home dotfile
+		local name
+		name=$(basename "$src_path")
+		dest_path="$DEV_ENV/env/$name"
+	else
+		err "cannot determine repo location for: $src_path"
+		err "path must be under ~/.config/, ~/.local/, or a ~/.<dotfile>"
+		return 1
+	fi
+
+	if [[ $dry_run == "1" ]]; then
+		warn "DRY RUN — would capture: $src_path -> $dest_path"
+		return 0
+	fi
+
+	# Warn and replace if existing in repo
+	if [[ -e "$dest_path" ]]; then
+		warn "replacing existing in repo: $dest_path"
+		rm -rf "$dest_path"
+	fi
+
+	# Copy source into repo
+	mkdir -p "$(dirname "$dest_path")"
+	cp -r "$src_path" "$dest_path"
+	log "captured: $src_path -> $dest_path"
+}
+
+# -----------------------------------------------------------------------
+# Update: re-capture all tracked configs from live system into repo
+# -----------------------------------------------------------------------
+do_update() {
+	local updated=0 missing=0
+
+	log "updating tracked configs from live system..."
+
+	# .config/ directories
+	for dir in "$DEV_ENV"/env/.config/*/; do
+		[[ -d "$dir" ]] || continue
+		local name
+		name=$(basename "$dir")
+		local live_path="$XDG_CONFIG_HOME/$name"
+
+		if [[ -d "$live_path" ]]; then
+			if [[ $dry_run == "1" ]]; then
+				warn "DRY RUN — would update: .config/$name"
+			else
+				rm -rf "$dir"
+				cp -r "$live_path" "$dir"
+				log "updated: .config/$name"
+			fi
+			updated=$(( updated + 1 ))
+		else
+			warn "missing on system: $live_path"
+			missing=$(( missing + 1 ))
+		fi
+	done
+
+	# .config/ standalone files
+	for file in "$DEV_ENV"/env/.config/*; do
+		[[ -f "$file" ]] || continue
+		local name
+		name=$(basename "$file")
+		local live_path="$XDG_CONFIG_HOME/$name"
+
+		if [[ -f "$live_path" ]]; then
+			if [[ $dry_run == "1" ]]; then
+				warn "DRY RUN — would update: .config/$name"
+			else
+				cp "$live_path" "$file"
+				log "updated: .config/$name"
+			fi
+			updated=$(( updated + 1 ))
+		else
+			warn "missing on system: $live_path"
+			missing=$(( missing + 1 ))
+		fi
+	done
+
+	# Home dotfiles
+	for dotfile in "$DEV_ENV"/env/.*; do
+		[[ -f "$dotfile" ]] || continue
+		local name
+		name=$(basename "$dotfile")
+		[[ "$name" == "." || "$name" == ".." ]] && continue
+		local live_path="$HOME/$name"
+
+		if [[ -f "$live_path" ]]; then
+			if [[ $dry_run == "1" ]]; then
+				warn "DRY RUN — would update: $name"
+			else
+				cp "$live_path" "$dotfile"
+				log "updated: $name"
+			fi
+			updated=$(( updated + 1 ))
+		else
+			warn "missing on system: $live_path"
+			missing=$(( missing + 1 ))
+		fi
+	done
+
+	log "done: $updated updated, $missing missing"
+}
+
+# -----------------------------------------------------------------------
+# Dispatch
+# -----------------------------------------------------------------------
+case "$mode" in
+	deploy)
+		do_deploy
+		;;
+	capture)
+		if [[ -z "$capture_path" ]]; then
+			err "usage: dev-env capture <path>"
+			exit 1
+		fi
+		do_capture "$capture_path"
+		;;
+	update)
+		do_update
+		;;
+esac
