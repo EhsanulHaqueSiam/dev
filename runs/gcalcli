@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Google Calendar CLI — needed for tmux meeting status
+pip install --user gcalcli
+
+echo "[gcalcli] installed. Run 'gcalcli init' to authenticate with Google Calendar."

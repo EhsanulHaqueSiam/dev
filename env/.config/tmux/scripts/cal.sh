@@ -1,82 +1,59 @@
 #!/bin/bash
 
+# Tmux calendar/meeting status script for Linux
+# Uses gcalcli (Google Calendar CLI) — install with: pip install gcalcli
+# First run: gcalcli init  (authenticates with Google)
+
 ALERT_IF_IN_NEXT_MINUTES=10
 ALERT_POPUP_BEFORE_SECONDS=10
 NERD_FONT_FREE="󱁕 "
 NERD_FONT_MEETING="󰤙"
 
-get_attendees() {
-	attendees=$(
-	icalBuddy \
-		--includeEventProps "attendees" \
-		--propertyOrder "datetime,title" \
-		--noCalendarNames \
-		--dateFormat "%A" \
-		--includeOnlyEventsFromNowOn \
-		--limitItems 1 \
-		--excludeAllDayEvents \
-		--separateByDate \
-		--excludeEndDates \
-		--bullet "" \
-		--excludeCals "training,mdehaquesiam@gmail.com" \
-		eventsToday)
-}
-
-parse_attendees() {
-	attendees_array=()
-	for line in $attendees; do
-		attendees_array+=("$line")
-	done
-	number_of_attendees=$((${#attendees_array[@]}-3))
-}
+# Check if gcalcli is available
+if ! command -v gcalcli &>/dev/null; then
+	echo "$NERD_FONT_FREE"
+	exit 0
+fi
 
 get_next_meeting() {
-	next_meeting=$(icalBuddy \
-		--includeEventProps "title,datetime" \
-		--propertyOrder "datetime,title" \
-		--noCalendarNames \
-		--dateFormat "%A" \
-		--includeOnlyEventsFromNowOn \
-		--limitItems 1 \
-		--excludeAllDayEvents \
-		--separateByDate \
-		--bullet "" \
-		--excludeCals "training,mdehaquesiam@gmail.com" \
-		eventsToday)
-}
-
-get_next_next_meeting() {
-	end_timestamp=$(date +"%Y-%m-%d ${end_time}:01 %z")
-	tonight=$(date +"%Y-%m-%d 23:59:00 %z")
-	next_next_meeting=$(
-	icalBuddy \
-		--includeEventProps "title,datetime" \
-		--propertyOrder "datetime,title" \
-		--noCalendarNames \
-		--dateFormat "%A" \
-		--limitItems 1 \
-		--excludeAllDayEvents \
-		--separateByDate \
-		--bullet "" \
-		--excludeCals "training,mdehaquesiam@gmail.com" \
-		eventsFrom:"${end_timestamp}" to:"${tonight}")
+	# Get the next non-all-day event from gcalcli
+	# Output format: date time title
+	next_meeting=$(gcalcli agenda \
+		--nostarted \
+		--tsv \
+		--no-military \
+		"$(date '+%Y-%m-%dT%H:%M')" \
+		"$(date '+%Y-%m-%dT23:59')" \
+		2>/dev/null | head -n 1)
 }
 
 parse_result() {
-	array=()
-	for line in $1; do
-		array+=("$line")
-	done
-	time="${array[2]}"
-	end_time="${array[4]}"
-	title="${array[*]:5:30}"
+	if [ -z "$next_meeting" ]; then
+		time=""
+		title=""
+		return
+	fi
+
+	# TSV format: start_date start_time end_date end_time title
+	start_date=$(echo "$next_meeting" | cut -f1)
+	time=$(echo "$next_meeting" | cut -f2)
+	end_date=$(echo "$next_meeting" | cut -f3)
+	end_time=$(echo "$next_meeting" | cut -f4)
+	title=$(echo "$next_meeting" | cut -f5-)
 }
 
-calculate_times(){
-	epoc_meeting=$(date -j -f "%T" "$time:00" +%s)
+calculate_times() {
+	if [ -z "$time" ]; then
+		minutes_till_meeting=9999
+		epoc_diff=9999
+		return
+	fi
+
+	# GNU date: parse meeting time
+	epoc_meeting=$(date -d "$start_date $time" +%s 2>/dev/null || echo 0)
 	epoc_now=$(date +%s)
 	epoc_diff=$((epoc_meeting - epoc_now))
-	minutes_till_meeting=$((epoc_diff/60))
+	minutes_till_meeting=$((epoc_diff / 60))
 }
 
 display_popup() {
@@ -86,45 +63,33 @@ display_popup() {
 		-h50% \
 		-d '#{pane_current_path}' \
 		-T meeting \
-		icalBuddy \
-			--propertyOrder "datetime,title" \
-			--noCalendarNames \
-			--formatOutput \
-			--includeEventProps "title,datetime,notes,url,attendees" \
-			--includeOnlyEventsFromNowOn \
-			--limitItems 1 \
-			--excludeAllDayEvents \
-			--excludeCals "training" \
-			eventsToday
+		"gcalcli agenda --details=all '$(date '+%Y-%m-%dT%H:%M')' '$(date '+%Y-%m-%dT23:59')' 2>/dev/null | head -n 20"
 }
 
 print_tmux_status() {
+	if [ -z "$time" ]; then
+		echo "$NERD_FONT_FREE"
+		return
+	fi
+
 	if [[ $minutes_till_meeting -lt $ALERT_IF_IN_NEXT_MINUTES \
 		&& $minutes_till_meeting -gt -60 ]]; then
-		echo "$NERD_FONT_MEETING \
-			$time $title ($minutes_till_meeting minutes)"
+		echo "$NERD_FONT_MEETING $time $title (${minutes_till_meeting}m)"
 	else
 		echo "$NERD_FONT_FREE"
 	fi
 
-	if [[ $epoc_diff -gt $ALERT_POPUP_BEFORE_SECONDS && epoc_diff -lt $ALERT_POPUP_BEFORE_SECONDS+10 ]]; then
+	if [[ $epoc_diff -gt $ALERT_POPUP_BEFORE_SECONDS \
+		&& $epoc_diff -lt $((ALERT_POPUP_BEFORE_SECONDS + 10)) ]]; then
 		display_popup
 	fi
 }
 
 main() {
-	get_attendees
-	parse_attendees
 	get_next_meeting
-	parse_result "$next_meeting"
+	parse_result
 	calculate_times
-	if [[ "$next_meeting" != "" && $number_of_attendees -lt 2 ]]; then
-		get_next_next_meeting
-		parse_result "$next_next_meeting"
-		calculate_times
-	fi
 	print_tmux_status
-	# echo "$minutes_till_meeting | $number_of_attendees"
 }
 
 main

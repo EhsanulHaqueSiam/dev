@@ -1,0 +1,312 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# -----------------------------------------------------------------------
+# Backup project directories to external SSD
+#
+# exFAT-optimized: no perms/owner/group/symlinks (unsupported)
+# Parallel: syncs subdirectories concurrently for throughput
+#
+# Modes:
+#   ./backup              — new full backup, prunes old ones
+#   ./backup Personal     — new backup of Personal, prunes old ones
+#   ./backup Personal/dev — updates latest backup's subfolder in-place
+# -----------------------------------------------------------------------
+
+SSD="/run/media/siam/TRANSCEND"
+BACKUP_ROOT="$SSD/backups"
+DEFAULT_KEEP=2
+DEFAULT_JOBS=4
+
+# Source directories to back up (relative to $HOME)
+SOURCES=(Personal)
+
+# Excludes for rsync
+EXCLUDES=(
+	.git/
+	node_modules/
+	__pycache__/
+	.venv/
+	venv/
+	.conda/
+	"*.pyc"
+	target/
+	dist/
+	build/
+	.cache/
+	.next/
+	.nuxt/
+	.ror/
+	.playwright-mcp/
+	.DS_Store
+	Thumbs.db
+	wandb/
+	.uv-cache/
+	.plugin_symlinks/
+)
+
+# exFAT-optimized rsync flags:
+#   -r            recursive
+#   --times       preserve modification times
+#   --modify-window=1   exFAT timestamp tolerance (2-second granularity)
+#   --no-links    skip symlinks (exFAT can't store them)
+#   --no-perms    exFAT ignores Unix permissions
+#   --no-owner    exFAT ignores ownership
+#   --no-group    exFAT ignores group
+#   --whole-file  skip delta algorithm (local copy, no benefit)
+#   --inplace     write directly, no temp files (faster on exFAT)
+RSYNC_FLAGS=(
+	-r --times --modify-window=1
+	--no-links --no-perms --no-owner --no-group
+	--whole-file --inplace
+)
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+log()  { echo -e "${GREEN}[backup]${NC} $1"; }
+warn() { echo -e "${YELLOW}[backup]${NC} $1"; }
+err()  { echo -e "${RED}[backup]${NC} $1"; }
+info() { echo -e "${BLUE}[backup]${NC} $1"; }
+
+# -----------------------------------------------------------------------
+# Parse arguments
+# -----------------------------------------------------------------------
+dry_run=0
+keep=$DEFAULT_KEEP
+jobs=$DEFAULT_JOBS
+targets=()
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--dry)   dry_run=1 ;;
+		--keep)  shift; keep="${1:?--keep requires a number}" ;;
+		--jobs)  shift; jobs="${1:?--jobs requires a number}" ;;
+		*)       targets+=("$1") ;;
+	esac
+	shift
+done
+
+# -----------------------------------------------------------------------
+# Check SSD
+# -----------------------------------------------------------------------
+if ! mountpoint -q "$SSD" 2>/dev/null; then
+	err "SSD not mounted at $SSD"
+	exit 1
+fi
+
+fs_info=$(df -Th "$SSD" | awk 'NR==2 {printf "%s | %s/%s used | %s free", $2, $3, $2, $5}')
+log "SSD: $fs_info"
+log "workers: $jobs | retention: $keep"
+
+# -----------------------------------------------------------------------
+# Build rsync exclude flags
+# -----------------------------------------------------------------------
+exclude_flags=()
+for pat in "${EXCLUDES[@]}"; do
+	exclude_flags+=(--exclude "$pat")
+done
+
+# -----------------------------------------------------------------------
+# Determine mode: full backup vs subfolder update
+# -----------------------------------------------------------------------
+subfolder_mode=0
+if [[ ${#targets[@]} -eq 0 ]]; then
+	sources=("${SOURCES[@]}")
+else
+	sources=()
+	for t in "${targets[@]}"; do
+		[[ "$t" == */* ]] && subfolder_mode=1
+		sources+=("$t")
+	done
+fi
+
+# Choose backup directory
+if [[ $subfolder_mode -eq 1 ]]; then
+	# Subfolder mode: update the latest existing backup in-place
+	latest=$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+	if [[ -z "$latest" ]]; then
+		err "no existing backup to update — run a full backup first"
+		exit 1
+	fi
+	backup_dir="$latest"
+	log "mode: updating existing backup $(basename "$backup_dir")"
+else
+	# Full mode: create new timestamped directory
+	timestamp=$(date +%Y-%m-%d_%H-%M-%S)
+	backup_dir="$BACKUP_ROOT/$timestamp"
+	log "mode: new backup $timestamp"
+fi
+
+# -----------------------------------------------------------------------
+# Sync function: parallel rsync per top-level item in a directory
+# -----------------------------------------------------------------------
+sync_parallel() {
+	local src_path="$1" dest="$2" label="$3"
+	local sync_failed_local=0
+
+	info "syncing $label ($jobs parallel workers)..."
+	mkdir -p "$dest"
+
+	# Collect all top-level items (dirs + files + dotfiles)
+	local items=()
+	for item in "$src_path"/* "$src_path"/.*; do
+		[[ -e "$item" ]] || continue
+		local name
+		name=$(basename "$item")
+		[[ "$name" == "." || "$name" == ".." ]] && continue
+		items+=("$name")
+	done
+
+	local total_items=${#items[@]}
+	local done_count=0
+	local batch_pids=()
+
+	for name in "${items[@]}"; do
+		# Skip excluded items
+		local excluded=0
+		for excl in "${EXCLUDES[@]}"; do
+			local excl_name="${excl%/}"
+			[[ "$name" == "$excl_name" ]] && excluded=1 && break
+		done
+		if [[ $excluded -eq 1 ]]; then
+			done_count=$(( done_count + 1 ))
+			continue
+		fi
+
+		local item_path="$src_path/$name"
+
+		if [[ -d "$item_path" ]]; then
+			mkdir -p "$dest/$name"
+			ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" \
+				"$item_path/" "$dest/$name/" >/dev/null 2>&1 &
+		else
+			ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" \
+				"$item_path" "$dest/" >/dev/null 2>&1 &
+		fi
+		batch_pids+=($!)
+
+		# Throttle: wait for batch when hitting max jobs
+		if (( ${#batch_pids[@]} >= jobs )); then
+			for pid in "${batch_pids[@]}"; do
+				wait "$pid" 2>/dev/null || sync_failed_local=1
+				done_count=$(( done_count + 1 ))
+			done
+			info "  [$done_count/$total_items] items synced..."
+			batch_pids=()
+		fi
+	done
+
+	# Wait for remaining batch
+	for pid in "${batch_pids[@]}"; do
+		wait "$pid" 2>/dev/null || sync_failed_local=1
+		done_count=$(( done_count + 1 ))
+	done
+
+	log "done: $label [$done_count/$total_items items]"
+	return $sync_failed_local
+}
+
+# -----------------------------------------------------------------------
+# Run backup
+# -----------------------------------------------------------------------
+start_time=$SECONDS
+sync_failed=0
+
+echo ""
+if [[ $dry_run -eq 1 ]]; then
+	warn "=== DRY RUN — no changes will be made ==="
+	echo ""
+fi
+
+for src in "${sources[@]}"; do
+	src_path="$HOME/$src"
+
+	if [[ ! -d "$src_path" ]]; then
+		err "source not found: $src_path"
+		sync_failed=1
+		continue
+	fi
+
+	dest="$backup_dir/$src"
+
+	# ---------------------------------------------------------------
+	# DRY RUN: single rsync, verbose, serial
+	# ---------------------------------------------------------------
+	if [[ $dry_run -eq 1 ]]; then
+		info "syncing $src (dry run)..."
+		mkdir -p "$dest"
+		rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" --dry-run -v \
+			"$src_path/" "$dest/" 2>&1 | tail -5
+		if [[ $subfolder_mode -eq 0 ]]; then
+			rm -rf "$backup_dir" 2>/dev/null || true
+		fi
+		log "done: $src (dry run)"
+		echo ""
+		continue
+	fi
+
+	# ---------------------------------------------------------------
+	# REAL BACKUP: parallel rsync
+	# ---------------------------------------------------------------
+	sync_parallel "$src_path" "$dest" "$src" || sync_failed=1
+	echo ""
+done
+
+elapsed=$(( SECONDS - start_time ))
+
+# -----------------------------------------------------------------------
+# Prune old backups (only for full backups, not subfolder updates)
+# -----------------------------------------------------------------------
+if [[ $dry_run -eq 0 && $subfolder_mode -eq 0 ]]; then
+	mapfile -t all_backups < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | sort)
+	total=${#all_backups[@]}
+
+	if (( total > keep )); then
+		prune_count=$(( total - keep ))
+		log "pruning $prune_count old backup(s) (keeping $keep)..."
+		for (( i=0; i<prune_count; i++ )); do
+			old="${all_backups[$i]}"
+			info "  removing: $(basename "$old")"
+			rm -rf "$old"
+		done
+	fi
+fi
+
+# -----------------------------------------------------------------------
+# Summary
+# -----------------------------------------------------------------------
+echo ""
+echo -e "${GREEN}================================${NC}"
+log "backup complete"
+echo -e "${GREEN}================================${NC}"
+
+if [[ $dry_run -eq 0 ]]; then
+	backup_size=$(du -sh "$backup_dir" 2>/dev/null | cut -f1)
+	log "time: ${elapsed}s"
+	log "size: $backup_size"
+	log "location: $backup_dir"
+	echo ""
+	log "remaining backups:"
+	mapfile -t remaining < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | sort)
+	for b in "${remaining[@]}"; do
+		size=$(du -sh "$b" 2>/dev/null | cut -f1)
+		echo -e "  ${BOLD}$(basename "$b")${NC}  ${size}"
+	done
+
+	if [[ $sync_failed -ne 0 ]]; then
+		echo ""
+		warn "some items had sync errors (non-fatal)"
+	fi
+else
+	warn "dry run — nothing was written"
+fi
+
+echo ""
+free_after=$(df -h "$SSD" | awk 'NR==2 {print $4}')
+log "SSD free space: $free_after"

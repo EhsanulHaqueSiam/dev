@@ -12,6 +12,12 @@ cd ~/dev
 
 That's it. All tools get installed and configs get symlinked into place.
 
+Or use the interactive TUI for a menu-driven experience:
+
+```bash
+./tui
+```
+
 ## Usage
 
 ### `./run` — Main entry point
@@ -47,6 +53,65 @@ What it does:
 - ...and so on for every config in `env/`
 
 **Idempotent** — running it again skips already-linked configs. Safe to re-run anytime.
+
+### `./backup` — Backup to external SSD
+
+Syncs project directories to timestamped backups on the external SSD (`/run/media/siam/TRANSCEND`). Two modes:
+
+**Full backup** — creates a new timestamped directory, prunes old ones:
+```bash
+./backup                           # backup all sources (Personal)
+./backup Personal                  # backup only Personal
+./backup --dry                     # preview, no changes
+./backup --keep 3                  # override retention (default: 2)
+./backup --jobs 8                  # override parallel workers (default: 4)
+```
+
+**Subfolder update** — updates the latest existing backup in-place (no new snapshot, no pruning):
+```bash
+./backup Personal/dev              # update just dev/ inside latest backup
+./backup Personal/portfolio        # update just portfolio/ inside latest
+```
+
+Optimized for the exFAT SSD:
+- **Parallel rsync** — 4 concurrent workers with `ionice` I/O priority
+- **exFAT flags** — `--no-perms --no-owner --no-group --no-links` (exFAT doesn't support these)
+- **`--inplace`** — writes directly to files, skips temp file + rename (faster on exFAT)
+- **`--whole-file`** — skips delta algorithm (pointless for local copies)
+- **`--modify-window=1`** — handles exFAT 2-second timestamp granularity
+- **Excludes** — `.git/`, `node_modules/`, `__pycache__/`, `.venv/`, `target/`, `dist/`, `build/`, `.cache/`, `wandb/`, `.uv-cache/`, etc.
+
+Backups are automatically pruned — only the latest N are kept (default 2).
+
+### `./restore` — Restore from external SSD
+
+Restores project directories from the SSD back to `$HOME`. Safe merge — adds/overwrites but never removes local files (no `--delete`).
+
+```bash
+./restore                                      # list available backups with sizes
+./restore Personal                             # restore all of Personal from latest
+./restore Personal/dev                         # restore only dev/ subfolder
+./restore --from 2026-02-15_14-30-00 Personal  # from a specific backup
+./restore --dry Personal                       # preview, no changes
+./restore --jobs 8 Personal                    # override parallel workers (default: 4)
+```
+
+Parallel restore with the same worker pool as backup. Requires typing `yes` to confirm (skipped in `--dry` mode).
+
+### `./tui` — Interactive Terminal UI
+
+Full interactive menu for all dev environment operations. Powered by [gum](https://github.com/charmbracelet/gum) — auto-installs if missing.
+
+```bash
+./tui
+```
+
+Features:
+- **Install Tools** — select all or pick individual tools from `runs/`
+- **Deploy Configs** — symlink configs with dry run preview
+- **Backup** — full backup, selective project backup, subfolder update, dry run, configure
+- **Restore** — restore from latest/specific backup, pick projects or subfolders, dry run
+- **Status** — SSD info, backup list, system specs, git status
 
 ### `./make_runs_executable` — Helper
 
@@ -147,6 +212,9 @@ This replaces `~/.config/mytool/` with a symlink to the repo. Future edits go st
 dev/
 ├── run                    # Main orchestrator (installs + deploys)
 ├── dev-env                # Config deployer (symlinks env/ to ~/)
+├── backup                 # Backup projects to external SSD
+├── restore                # Restore projects from external SSD
+├── tui                    # Interactive terminal UI (gum)
 ├── make_runs_executable   # chmod helper
 │
 ├── runs/                  # Individual tool installers
@@ -155,9 +223,13 @@ dev/
 │   ├── bun                # JavaScript/TypeScript runtime
 │   ├── discord            # Communication
 │   ├── expressvpn         # VPN client
+│   ├── eza                # Modern ls replacement
 │   ├── fnm                # Fast Node.js version manager
+│   ├── gcalcli            # Google Calendar CLI
 │   ├── gemini             # Google Gemini CLI
 │   ├── ghostty            # Terminal emulator
+│   ├── go                 # Go toolchain
+│   ├── gum                # Glamorous shell scripts (TUI dependency)
 │   ├── miniconda          # Python environment manager
 │   ├── neovim             # Editor + clipboard + build deps
 │   ├── node               # Node.js + npm
@@ -171,6 +243,7 @@ dev/
 │   ├── tldr               # Simplified man pages
 │   ├── tmux               # Terminal multiplexer + TPM
 │   ├── uv                 # Fast Python package manager
+│   ├── xh                 # HTTP client (httpie alternative)
 │   ├── yazi               # Terminal file manager
 │   └── zsh                # Z shell + plugins
 │
@@ -203,6 +276,21 @@ dev/
 
 Symlinks mean changes flow both ways — edit configs in place, commit from the repo.
 
+**`./backup`** syncs project directories to the Transcend exFAT SSD at `/run/media/siam/TRANSCEND/backups/`. Each full backup creates a timestamped directory (`2026-02-15_14-30-00/`). Subfolder backups (`Personal/dev`) update the latest existing backup in-place instead. Top-level items are synced in parallel (4 workers by default) with `ionice` for I/O priority. Old backups are pruned to keep only the latest 2 (configurable with `--keep`).
+
+**`./restore`** syncs from the SSD back to `$HOME`. With no arguments, lists all available backups with sizes. Uses safe merge (no `--delete`) so local files that don't exist in the backup are preserved. Also parallelized for speed.
+
+SSD layout:
+```
+/run/media/siam/TRANSCEND/
+├── System Volume Information/    # NEVER TOUCHED
+└── backups/
+    ├── 2026-02-15_14-30-00/
+    │   └── Personal/             # full snapshot
+    └── 2026-02-15_18-00-00/
+        └── Personal/             # full snapshot
+```
+
 ## Flags Reference
 
 | Flag | Description |
@@ -215,9 +303,23 @@ Symlinks mean changes flow both ways — edit configs in place, commit from the 
 | `./dev-env` | Deploy configs standalone |
 | `./dev-env --dry` | Preview config deployment |
 | `DEV_ENV=/path ./run` | Override repo path |
+| `./backup` | Full backup of all sources to SSD |
+| `./backup <target>` | Full backup of specific project |
+| `./backup <target/sub>` | Update subfolder in latest backup (in-place) |
+| `./backup --dry` | Preview backup |
+| `./backup --keep N` | Override retention count (default: 2) |
+| `./backup --jobs N` | Override parallel workers (default: 4) |
+| `./restore` | List available backups with sizes |
+| `./restore <target>` | Restore from latest backup |
+| `./restore <target/sub>` | Restore specific subfolder |
+| `./restore --from <ts> <target>` | Restore from specific backup |
+| `./restore --dry <target>` | Preview restore |
+| `./restore --jobs N <target>` | Override parallel workers (default: 4) |
+| `./tui` | Interactive terminal UI (all features) |
 
 ## Requirements
 
 - **OS:** Arch Linux (uses `paru`/`pacman`)
 - **Dependencies:** `git`, `curl`, `bash`
 - **Optional:** `paru` (AUR helper — most installers use it)
+- **Optional:** `gum` (auto-installed by `./tui` if missing)

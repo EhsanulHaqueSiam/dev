@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-sudo pacman -Syu nvidia nvidia-utils nvidia-settings
-sudo pacman -S cuda
+# Skip on systems without NVIDIA GPU
+if ! lspci 2>/dev/null | grep -qi nvidia; then
+	echo "[nvidiaDriver] no NVIDIA GPU detected — skipping"
+	exit 0
+fi
+
+sudo pacman -S --noconfirm --needed nvidia nvidia-utils nvidia-settings cuda
+
+echo "[nvidiaDriver] verifying installation..."
 nvidia-smi
 nvcc --version

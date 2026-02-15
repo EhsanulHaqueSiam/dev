@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-sudo pacman -S zsh
+sudo pacman -S --noconfirm --needed zsh
 hash -r
-chsh -s $(which zsh)
 
-yay -S zsh-autosuggestions zsh-autosuggestions-git
+# Install autosuggestions via git clone (single source of truth)
+if [ ! -d "$HOME/.zsh/zsh-autosuggestions" ]; then
+	git clone https://github.com/zsh-users/zsh-autosuggestions ~/.zsh/zsh-autosuggestions
+else
+	echo "[zsh] zsh-autosuggestions already installed"
+fi
 
-git clone https://github.com/zsh-users/zsh-autosuggestions ~/.zsh/zsh-autosuggestions
+# Set zsh as default shell (non-interactive)
+if [ "$SHELL" != "$(which zsh)" ]; then
+	sudo chsh -s "$(which zsh)" "$USER"
+fi

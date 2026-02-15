@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# gum — glamorous shell scripts (required for ./tui)
+paru -S --noconfirm --needed gum

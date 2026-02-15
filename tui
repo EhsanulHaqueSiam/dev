@@ -1,0 +1,824 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# -----------------------------------------------------------------------
+# Interactive TUI for dev environment management
+# Requires: gum (charmbracelet/gum)
+# -----------------------------------------------------------------------
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+if [ -z "${DEV_ENV:-}" ]; then
+	DEV_ENV="$script_dir"
+fi
+
+SSD="/run/media/siam/TRANSCEND"
+BACKUP_ROOT="$SSD/backups"
+SOURCES=(Personal)
+
+# -----------------------------------------------------------------------
+# Check dependencies — auto-install gum if missing
+# -----------------------------------------------------------------------
+if ! command -v gum &>/dev/null; then
+	echo "gum is required for the TUI but not installed."
+	if command -v paru &>/dev/null; then
+		echo "Installing gum..."
+		paru -S --noconfirm --needed gum
+	elif command -v pacman &>/dev/null; then
+		echo "Installing gum..."
+		sudo pacman -S --noconfirm --needed gum
+	else
+		echo "Install gum manually: https://github.com/charmbracelet/gum"
+		exit 1
+	fi
+fi
+
+# -----------------------------------------------------------------------
+# Theme
+# -----------------------------------------------------------------------
+export GUM_CHOOSE_CURSOR_FOREGROUND="212"
+export GUM_CHOOSE_SELECTED_FOREGROUND="212"
+export GUM_CHOOSE_HEADER_FOREGROUND="240"
+export GUM_CONFIRM_PROMPT_FOREGROUND="212"
+
+# -----------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------
+header() {
+	echo ""
+	gum style \
+		--foreground 212 --bold \
+		--border double --border-foreground 240 \
+		--padding "0 2" --margin "0 0" \
+		"$1"
+	echo ""
+}
+
+divider() {
+	gum style --foreground 240 "$(printf '%.0s─' {1..50})"
+}
+
+info() {
+	gum style --foreground 39 "  $1"
+}
+
+success() {
+	gum style --foreground 78 "  $1"
+}
+
+warn() {
+	gum style --foreground 214 "  $1"
+}
+
+error() {
+	gum style --foreground 196 "  $1"
+}
+
+pause() {
+	echo ""
+	gum style --foreground 240 "  Press any key to continue..."
+	read -rsn1
+}
+
+# -----------------------------------------------------------------------
+# SSD status helper
+# -----------------------------------------------------------------------
+ssd_status() {
+	if mountpoint -q "$SSD" 2>/dev/null; then
+		local fs used total free pct
+		fs=$(df -Th "$SSD" | awk 'NR==2 {print $2}')
+		total=$(df -h "$SSD" | awk 'NR==2 {print $2}')
+		used=$(df -h "$SSD" | awk 'NR==2 {print $3}')
+		free=$(df -h "$SSD" | awk 'NR==2 {print $4}')
+		pct=$(df "$SSD" | awk 'NR==2 {print $5}')
+		echo "mounted  $fs  ${used}/${total} (${pct})  ${free} free"
+	else
+		echo "not mounted"
+	fi
+}
+
+backup_list() {
+	find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort
+}
+
+latest_backup() {
+	backup_list | tail -1
+}
+
+# -----------------------------------------------------------------------
+# Main menu
+# -----------------------------------------------------------------------
+main_menu() {
+	while true; do
+		clear
+		header "Dev Environment"
+
+		local ssd_info
+		ssd_info=$(ssd_status)
+		info "SSD: $ssd_info"
+		echo ""
+
+		local choice
+		choice=$(gum choose \
+			--header "What would you like to do?" \
+			--height 10 \
+			"Install Tools" \
+			"Deploy Configs" \
+			"Backup to SSD" \
+			"Restore from SSD" \
+			"Status" \
+			"Quit" \
+		) || return 0
+
+		case "$choice" in
+			"Install Tools")  menu_install ;;
+			"Deploy Configs") menu_deploy ;;
+			"Backup to SSD")  menu_backup ;;
+			"Restore from SSD") menu_restore ;;
+			"Status")         menu_status ;;
+			"Quit")           return 0 ;;
+		esac
+	done
+}
+
+# -----------------------------------------------------------------------
+# Install Tools
+# -----------------------------------------------------------------------
+menu_install() {
+	clear
+	header "Install Tools"
+
+	local choice
+	choice=$(gum choose \
+		--header "Select mode:" \
+		--height 6 \
+		"Install All" \
+		"Select Tools" \
+		"Dry Run (preview)" \
+		"Back" \
+	) || return 0
+
+	case "$choice" in
+		"Install All")
+			echo ""
+			"$DEV_ENV/run"
+			pause
+			;;
+		"Select Tools")
+			select_and_install
+			;;
+		"Dry Run (preview)")
+			echo ""
+			"$DEV_ENV/run" --dry
+			pause
+			;;
+		"Back") return 0 ;;
+	esac
+}
+
+select_and_install() {
+	# Get list of available tools
+	local tools=()
+	for s in "$DEV_ENV"/runs/*; do
+		[[ -x "$s" ]] && tools+=("$(basename "$s")")
+	done
+
+	if [[ ${#tools[@]} -eq 0 ]]; then
+		error "No tools found in runs/"
+		pause
+		return
+	fi
+
+	echo ""
+	local selected
+	selected=$(printf '%s\n' "${tools[@]}" | gum choose \
+		--no-limit \
+		--header "Select tools to install (space to toggle, enter to confirm):" \
+		--height 20 \
+	) || return 0
+
+	if [[ -z "$selected" ]]; then
+		warn "Nothing selected"
+		pause
+		return
+	fi
+
+	echo ""
+	gum style --foreground 78 "Selected:"
+	echo "$selected" | while read -r t; do
+		info "  $t"
+	done
+	echo ""
+
+	if gum confirm "Install selected tools?"; then
+		echo ""
+		echo "$selected" | while read -r tool; do
+			gum style --foreground 39 --bold "--- $tool ---"
+			"$DEV_ENV/run" "$tool" || true
+			echo ""
+		done
+		success "Done!"
+	else
+		warn "Cancelled"
+	fi
+	pause
+}
+
+# -----------------------------------------------------------------------
+# Deploy Configs
+# -----------------------------------------------------------------------
+menu_deploy() {
+	clear
+	header "Deploy Configs"
+
+	local choice
+	choice=$(gum choose \
+		--header "Select mode:" \
+		--height 5 \
+		"Deploy All Configs" \
+		"Dry Run (preview)" \
+		"Back" \
+	) || return 0
+
+	case "$choice" in
+		"Deploy All Configs")
+			echo ""
+			"$DEV_ENV/dev-env"
+			pause
+			;;
+		"Dry Run (preview)")
+			echo ""
+			"$DEV_ENV/dev-env" --dry
+			pause
+			;;
+		"Back") return 0 ;;
+	esac
+}
+
+# -----------------------------------------------------------------------
+# Backup
+# -----------------------------------------------------------------------
+menu_backup() {
+	if ! mountpoint -q "$SSD" 2>/dev/null; then
+		clear
+		header "Backup"
+		error "SSD not mounted at $SSD"
+		pause
+		return
+	fi
+
+	clear
+	header "Backup to SSD"
+	info "SSD: $(ssd_status)"
+
+	# Show existing backups
+	local backups
+	mapfile -t backups < <(backup_list)
+	if [[ ${#backups[@]} -gt 0 ]]; then
+		echo ""
+		gum style --foreground 240 "  Existing backups:"
+		for b in "${backups[@]}"; do
+			local size
+			size=$(du -sh "$b" 2>/dev/null | cut -f1)
+			info "  $(basename "$b")  $size"
+		done
+	fi
+
+	echo ""
+
+	local choice
+	choice=$(gum choose \
+		--header "Backup mode:" \
+		--height 8 \
+		"Full Backup (new snapshot)" \
+		"Select Projects" \
+		"Update Subfolder (in latest)" \
+		"Dry Run (preview)" \
+		"Configure" \
+		"Back" \
+	) || return 0
+
+	case "$choice" in
+		"Full Backup (new snapshot)")
+			do_backup_full
+			;;
+		"Select Projects")
+			do_backup_select
+			;;
+		"Update Subfolder (in latest)")
+			do_backup_subfolder
+			;;
+		"Dry Run (preview)")
+			echo ""
+			"$DEV_ENV/backup" --dry
+			pause
+			;;
+		"Configure")
+			do_backup_configure
+			;;
+		"Back") return 0 ;;
+	esac
+}
+
+do_backup_full() {
+	echo ""
+	if gum confirm "Run full backup of all sources?"; then
+		echo ""
+		"$DEV_ENV/backup"
+		pause
+	fi
+}
+
+do_backup_select() {
+	# List available project directories in each source
+	local projects=()
+	for src in "${SOURCES[@]}"; do
+		local src_path="$HOME/$src"
+		[[ -d "$src_path" ]] || continue
+		for d in "$src_path"/*/; do
+			[[ -d "$d" ]] || continue
+			local name
+			name=$(basename "$d")
+			# Skip common excludes
+			[[ "$name" == ".git" || "$name" == "node_modules" || "$name" == ".cache" ]] && continue
+			[[ "$name" == ".ror" || "$name" == ".playwright-mcp" ]] && continue
+			projects+=("$src/$name")
+		done
+	done
+
+	if [[ ${#projects[@]} -eq 0 ]]; then
+		error "No projects found"
+		pause
+		return
+	fi
+
+	echo ""
+	local selected
+	selected=$(printf '%s\n' "${projects[@]}" | gum choose \
+		--no-limit \
+		--header "Select projects to backup (space to toggle):" \
+		--height 20 \
+	) || return 0
+
+	if [[ -z "$selected" ]]; then
+		warn "Nothing selected"
+		pause
+		return
+	fi
+
+	echo ""
+	gum style --foreground 78 "Selected for backup:"
+	echo "$selected" | while read -r p; do
+		info "  $p"
+	done
+	echo ""
+
+	if gum confirm "Backup selected projects?"; then
+		echo ""
+		echo "$selected" | while read -r proj; do
+			"$DEV_ENV/backup" "$proj"
+		done
+		pause
+	fi
+}
+
+do_backup_subfolder() {
+	local latest
+	latest=$(latest_backup)
+	if [[ -z "$latest" ]]; then
+		error "No existing backup found — run a full backup first"
+		pause
+		return
+	fi
+
+	info "Will update: $(basename "$latest")"
+	echo ""
+
+	# List subfolders available for update
+	local subfolders=()
+	for src in "${SOURCES[@]}"; do
+		local src_path="$HOME/$src"
+		[[ -d "$src_path" ]] || continue
+		for d in "$src_path"/*/; do
+			[[ -d "$d" ]] || continue
+			local name
+			name=$(basename "$d")
+			[[ "$name" == ".git" || "$name" == "node_modules" || "$name" == ".cache" ]] && continue
+			[[ "$name" == ".ror" || "$name" == ".playwright-mcp" ]] && continue
+			subfolders+=("$src/$name")
+		done
+	done
+
+	local selected
+	selected=$(printf '%s\n' "${subfolders[@]}" | gum choose \
+		--no-limit \
+		--header "Select subfolders to update in latest backup:" \
+		--height 20 \
+	) || return 0
+
+	if [[ -z "$selected" ]]; then
+		warn "Nothing selected"
+		pause
+		return
+	fi
+
+	echo ""
+	gum style --foreground 78 "Will update in $(basename "$latest"):"
+	echo "$selected" | while read -r s; do
+		info "  $s"
+	done
+	echo ""
+
+	if gum confirm "Update selected subfolders?"; then
+		echo ""
+		echo "$selected" | while read -r sub; do
+			"$DEV_ENV/backup" "$sub"
+		done
+		pause
+	fi
+}
+
+do_backup_configure() {
+	echo ""
+	gum style --foreground 240 "  Current defaults are set in the backup script."
+	gum style --foreground 240 "  You can override per-run with flags:"
+	echo ""
+	info "--keep N    retention count (default: 2)"
+	info "--jobs N    parallel workers (default: 4)"
+	echo ""
+	info "Example: ./backup --keep 5 --jobs 8"
+	pause
+}
+
+# -----------------------------------------------------------------------
+# Restore
+# -----------------------------------------------------------------------
+menu_restore() {
+	if ! mountpoint -q "$SSD" 2>/dev/null; then
+		clear
+		header "Restore"
+		error "SSD not mounted at $SSD"
+		pause
+		return
+	fi
+
+	clear
+	header "Restore from SSD"
+
+	local backups
+	mapfile -t backups < <(backup_list)
+
+	if [[ ${#backups[@]} -eq 0 ]]; then
+		warn "No backups found on SSD"
+		pause
+		return
+	fi
+
+	# Show available backups
+	gum style --foreground 240 "  Available backups:"
+	for b in "${backups[@]}"; do
+		local size contents
+		size=$(du -sh "$b" 2>/dev/null | cut -f1)
+		contents=$(ls -1 "$b" 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+		info "$(basename "$b")  $size  [$contents]"
+	done
+	echo ""
+
+	local choice
+	choice=$(gum choose \
+		--header "Restore mode:" \
+		--height 8 \
+		"Restore All from Latest" \
+		"Restore Specific Projects" \
+		"Restore Subfolder" \
+		"Choose Backup Version" \
+		"Dry Run (preview)" \
+		"Back" \
+	) || return 0
+
+	case "$choice" in
+		"Restore All from Latest")
+			do_restore_latest
+			;;
+		"Restore Specific Projects")
+			do_restore_select_projects
+			;;
+		"Restore Subfolder")
+			do_restore_subfolder
+			;;
+		"Choose Backup Version")
+			do_restore_from_specific
+			;;
+		"Dry Run (preview)")
+			do_restore_dry
+			;;
+		"Back") return 0 ;;
+	esac
+}
+
+do_restore_latest() {
+	local latest
+	latest=$(latest_backup)
+	[[ -z "$latest" ]] && { error "No backup found"; pause; return; }
+
+	local size
+	size=$(du -sh "$latest" 2>/dev/null | cut -f1)
+
+	echo ""
+	warn "Restoring from: $(basename "$latest") ($size)"
+	warn "This will overwrite files in your home directory"
+	warn "Mode: safe merge (won't delete local files)"
+	echo ""
+
+	# List what's in the backup
+	local targets=()
+	for d in "$latest"/*/; do
+		[[ -d "$d" ]] && targets+=("$(basename "$d")")
+	done
+
+	info "Contains: ${targets[*]}"
+	echo ""
+
+	if gum confirm "Restore all from latest backup?"; then
+		echo ""
+		for t in "${targets[@]}"; do
+			echo "yes" | "$DEV_ENV/restore" "$t"
+		done
+		pause
+	fi
+}
+
+do_restore_select_projects() {
+	local latest
+	latest=$(latest_backup)
+	[[ -z "$latest" ]] && { error "No backup found"; pause; return; }
+
+	# List available projects in backup
+	local projects=()
+	for d in "$latest"/*/; do
+		[[ -d "$d" ]] && projects+=("$(basename "$d")")
+	done
+
+	echo ""
+	local selected
+	selected=$(printf '%s\n' "${projects[@]}" | gum choose \
+		--no-limit \
+		--header "Select projects to restore from $(basename "$latest"):" \
+		--height 15 \
+	) || return 0
+
+	if [[ -z "$selected" ]]; then
+		warn "Nothing selected"
+		pause
+		return
+	fi
+
+	echo ""
+	warn "Will restore from: $(basename "$latest")"
+	echo "$selected" | while read -r p; do
+		info "  $p"
+	done
+	echo ""
+
+	if gum confirm "Restore selected projects?"; then
+		echo ""
+		echo "$selected" | while read -r proj; do
+			echo "yes" | "$DEV_ENV/restore" "$proj"
+		done
+		pause
+	fi
+}
+
+do_restore_subfolder() {
+	local latest
+	latest=$(latest_backup)
+	[[ -z "$latest" ]] && { error "No backup found"; pause; return; }
+
+	# Build list of subfolders in backup
+	local subfolders=()
+	for src_dir in "$latest"/*/; do
+		[[ -d "$src_dir" ]] || continue
+		local src_name
+		src_name=$(basename "$src_dir")
+		for sub_dir in "$src_dir"/*/; do
+			[[ -d "$sub_dir" ]] || continue
+			subfolders+=("$src_name/$(basename "$sub_dir")")
+		done
+	done
+
+	if [[ ${#subfolders[@]} -eq 0 ]]; then
+		error "No subfolders found in backup"
+		pause
+		return
+	fi
+
+	echo ""
+	local selected
+	selected=$(printf '%s\n' "${subfolders[@]}" | gum choose \
+		--no-limit \
+		--header "Select subfolders to restore from $(basename "$latest"):" \
+		--height 20 \
+	) || return 0
+
+	if [[ -z "$selected" ]]; then
+		warn "Nothing selected"
+		pause
+		return
+	fi
+
+	echo ""
+	warn "Will restore subfolders from: $(basename "$latest")"
+	echo "$selected" | while read -r s; do
+		info "  $s"
+	done
+	echo ""
+
+	if gum confirm "Restore selected subfolders?"; then
+		echo ""
+		echo "$selected" | while read -r sub; do
+			echo "yes" | "$DEV_ENV/restore" "$sub"
+		done
+		pause
+	fi
+}
+
+do_restore_from_specific() {
+	local backups
+	mapfile -t backups < <(backup_list)
+
+	# Build selection list with sizes
+	local labels=()
+	for b in "${backups[@]}"; do
+		local size
+		size=$(du -sh "$b" 2>/dev/null | cut -f1)
+		labels+=("$(basename "$b")  ($size)")
+	done
+
+	echo ""
+	local selected
+	selected=$(printf '%s\n' "${labels[@]}" | gum choose \
+		--header "Choose backup:" \
+		--height 10 \
+	) || return 0
+
+	# Extract timestamp from selection
+	local ts
+	ts=$(echo "$selected" | awk '{print $1}')
+
+	local backup_dir="$BACKUP_ROOT/$ts"
+	if [[ ! -d "$backup_dir" ]]; then
+		error "Backup not found: $ts"
+		pause
+		return
+	fi
+
+	# List projects in that backup
+	local projects=()
+	for d in "$backup_dir"/*/; do
+		[[ -d "$d" ]] && projects+=("$(basename "$d")")
+	done
+
+	local proj_selected
+	proj_selected=$(printf '%s\n' "${projects[@]}" | gum choose \
+		--no-limit \
+		--header "Select projects to restore from $ts:" \
+		--height 15 \
+	) || return 0
+
+	if [[ -z "$proj_selected" ]]; then
+		warn "Nothing selected"
+		pause
+		return
+	fi
+
+	echo ""
+	warn "Restoring from: $ts"
+	echo "$proj_selected" | while read -r p; do
+		info "  $p"
+	done
+	echo ""
+
+	if gum confirm "Restore selected?"; then
+		echo ""
+		echo "$proj_selected" | while read -r proj; do
+			echo "yes" | "$DEV_ENV/restore" --from "$ts" "$proj"
+		done
+		pause
+	fi
+}
+
+do_restore_dry() {
+	local latest
+	latest=$(latest_backup)
+	[[ -z "$latest" ]] && { error "No backup found"; pause; return; }
+
+	# List projects in backup
+	local projects=()
+	for d in "$latest"/*/; do
+		[[ -d "$d" ]] && projects+=("$(basename "$d")")
+	done
+
+	echo ""
+	local selected
+	selected=$(printf '%s\n' "${projects[@]}" | gum choose \
+		--header "Select project for dry run preview:" \
+		--height 10 \
+	) || return 0
+
+	echo ""
+	"$DEV_ENV/restore" --dry "$selected"
+	pause
+}
+
+# -----------------------------------------------------------------------
+# Status
+# -----------------------------------------------------------------------
+menu_status() {
+	clear
+	header "System Status"
+
+	# SSD
+	divider
+	gum style --foreground 212 --bold "  SSD"
+	if mountpoint -q "$SSD" 2>/dev/null; then
+		local fs total used free pct
+		fs=$(df -Th "$SSD" | awk 'NR==2 {print $2}')
+		total=$(df -h "$SSD" | awk 'NR==2 {print $2}')
+		used=$(df -h "$SSD" | awk 'NR==2 {print $3}')
+		free=$(df -h "$SSD" | awk 'NR==2 {print $4}')
+		pct=$(df "$SSD" | awk 'NR==2 {print $5}')
+		info "Mount:       $SSD"
+		info "Filesystem:  $fs"
+		info "Size:        $total"
+		info "Used:        $used ($pct)"
+		info "Free:        $free"
+	else
+		error "Not mounted"
+	fi
+
+	echo ""
+
+	# Backups
+	divider
+	gum style --foreground 212 --bold "  Backups"
+	if mountpoint -q "$SSD" 2>/dev/null; then
+		local backups
+		mapfile -t backups < <(backup_list)
+		if [[ ${#backups[@]} -gt 0 ]]; then
+			info "Count: ${#backups[@]}"
+			for b in "${backups[@]}"; do
+				local size contents
+				size=$(du -sh "$b" 2>/dev/null | cut -f1)
+				contents=$(ls -1 "$b" 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+				info "  $(basename "$b")  $size  [$contents]"
+			done
+		else
+			warn "No backups found"
+		fi
+	else
+		warn "SSD not mounted"
+	fi
+
+	echo ""
+
+	# System
+	divider
+	gum style --foreground 212 --bold "  System"
+	info "CPU:    $(lscpu | grep 'Model name' | sed 's/.*: *//')"
+	info "Cores:  $(nproc) threads"
+	info "rsync:  $(rsync --version | head -1 | awk '{print $3}')"
+	info "gum:    $(gum --version 2>&1 | awk '{print $NF}')"
+
+	echo ""
+
+	# Dev repo
+	divider
+	gum style --foreground 212 --bold "  Dev Repo"
+	info "Path: $DEV_ENV"
+	local git_status
+	git_status=$(cd "$DEV_ENV" && git status --porcelain 2>/dev/null | wc -l)
+	if [[ "$git_status" -eq 0 ]]; then
+		success "Clean (no uncommitted changes)"
+	else
+		warn "$git_status uncommitted change(s)"
+	fi
+	local branch
+	branch=$(cd "$DEV_ENV" && git branch --show-current 2>/dev/null)
+	info "Branch: $branch"
+
+	echo ""
+
+	# Tools
+	divider
+	gum style --foreground 212 --bold "  Installed Tools"
+	local tool_count
+	tool_count=$(find "$DEV_ENV/runs" -mindepth 1 -maxdepth 1 -executable 2>/dev/null | wc -l)
+	info "$tool_count tool scripts in runs/"
+
+	pause
+}
+
+# -----------------------------------------------------------------------
+# Entry point
+# -----------------------------------------------------------------------
+main_menu

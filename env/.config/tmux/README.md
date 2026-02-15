@@ -10,13 +10,15 @@ git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 `Ctrl+I`
 
 
-# 🧠 Tmux Custom Keybindings
+# Tmux Custom Keybindings
 
-This document explains all the custom Tmux shortcuts defined in your configuration. These replace the default keybindings after unbinding all keys.
+This document explains all the custom Tmux shortcuts defined in your configuration.
+
+**Prefix: `Ctrl + A`**
 
 ---
 
-## 🔐 Session & Server
+## Session & Server
 
 | Key Combo  | Action                            |
 | ---------- | --------------------------------- |
@@ -27,7 +29,7 @@ This document explains all the custom Tmux shortcuts defined in your configurati
 
 ---
 
-## 🪟 Windows
+## Windows
 
 | Key Combo        | Action                         |
 | ---------------- | ------------------------------ |
@@ -42,22 +44,21 @@ This document explains all the custom Tmux shortcuts defined in your configurati
 
 ---
 
-## 🧱 Panes
+## Panes
 
-| Key Combo | Action                                |                         |
-| --------- | ------------------------------------- | ----------------------- |
-| \`        | \`                                    | Split pane horizontally |
-| `s`       | Split pane vertically (stay in dir)   |                         |
-| `v`       | Split pane horizontally (stay in dir) |                         |
-| `z`       | Toggle zoom for current pane          |                         |
-| `*`       | Toggle synchronize-panes mode         |                         |
-| `P`       | Toggle pane border status             |                         |
-| `c`       | Kill current pane                     |                         |
-| `x`       | Swap current pane with the one below  |                         |
+| Key Combo | Action                                |
+| --------- | ------------------------------------- |
+| `\|`      | Split pane horizontally               |
+| `s`       | Split pane vertically (stay in dir)   |
+| `v`       | Split pane horizontally (stay in dir) |
+| `z`       | Toggle zoom for current pane          |
+| `P`       | Toggle pane border status             |
+| `c`       | Kill current pane                     |
+| `x`       | Swap current pane with the one below  |
 
 ---
 
-## 🧭 Pane Navigation
+## Pane Navigation
 
 | Key Combo | Action             |
 | --------- | ------------------ |
@@ -68,7 +69,7 @@ This document explains all the custom Tmux shortcuts defined in your configurati
 
 ---
 
-## ⬆️ Resize Panes (with prefix)
+## Resize Panes (with prefix)
 
 | Key Combo | Action                  |
 | --------- | ----------------------- |
@@ -79,7 +80,7 @@ This document explains all the custom Tmux shortcuts defined in your configurati
 
 ---
 
-## 📜 Copy Mode (Vi-style)
+## Copy Mode (Vi-style)
 
 | Key Combo          | Action          |
 | ------------------ | --------------- |
@@ -87,23 +88,18 @@ This document explains all the custom Tmux shortcuts defined in your configurati
 
 ---
 
-## 🧼 Other
+## Other
 
-| Key Combo        | Action                             |
-| ---------------- | ---------------------------------- |
-| `:`              | Enter Tmux command prompt          |
-| `K`              | Clear the terminal in current pane |
-| `Ctrl + L` / `l` | Refresh the Tmux client display    |
+| Key Combo  | Action                             |
+| ---------- | ---------------------------------- |
+| `:`        | Enter Tmux command prompt          |
+| `K`        | Clear the terminal in current pane |
+| `Ctrl + L` | Refresh the Tmux client display    |
 
 ---
 
 ## Notes
 
-* All default bindings are removed first via `unbind-key -a`, so only the above ones are active.
+* The `unbind-key -a` line is commented out — default bindings are preserved alongside custom ones.
 * Some keys are context-specific (e.g. `v` inside copy-mode).
-* Most bindings assume the default prefix is still `Ctrl + B`. If you've changed that, apply the prefix before these keys.
-
----
-
-Let me know if you want this styled with emojis, icons, or reorganized for cheat-sheet printing.
-
+* Prefix is `Ctrl + A` (not the default `Ctrl + B`).

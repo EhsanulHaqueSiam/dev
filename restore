@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# -----------------------------------------------------------------------
+# Restore project directories from external SSD backup
+#
+# Parallel: restores subdirectories concurrently for throughput
+# Safe merge: no --delete (adds/overwrites, never removes local files)
+# -----------------------------------------------------------------------
+
+SSD="/run/media/siam/TRANSCEND"
+BACKUP_ROOT="$SSD/backups"
+DEFAULT_JOBS=4
+
+# Restore rsync flags:
+#   -r          recursive
+#   --times     preserve modification times
+#   --no-links  backup has no symlinks (was exFAT)
+RSYNC_FLAGS=(-r --times --no-links)
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+log()  { echo -e "${GREEN}[restore]${NC} $1"; }
+warn() { echo -e "${YELLOW}[restore]${NC} $1"; }
+err()  { echo -e "${RED}[restore]${NC} $1"; }
+info() { echo -e "${BLUE}[restore]${NC} $1"; }
+
+# -----------------------------------------------------------------------
+# Parse arguments
+# -----------------------------------------------------------------------
+dry_run=0
+from_backup=""
+jobs=$DEFAULT_JOBS
+targets=()
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--dry)   dry_run=1 ;;
+		--from)  shift; from_backup="${1:?--from requires a backup name}" ;;
+		--jobs)  shift; jobs="${1:?--jobs requires a number}" ;;
+		*)       targets+=("$1") ;;
+	esac
+	shift
+done
+
+# -----------------------------------------------------------------------
+# Check SSD
+# -----------------------------------------------------------------------
+if ! mountpoint -q "$SSD" 2>/dev/null; then
+	err "SSD not mounted at $SSD"
+	exit 1
+fi
+
+# -----------------------------------------------------------------------
+# List backups if no target given
+# -----------------------------------------------------------------------
+if [[ ${#targets[@]} -eq 0 ]]; then
+	log "available backups on SSD:"
+	echo ""
+
+	mapfile -t backups < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+
+	if [[ ${#backups[@]} -eq 0 ]]; then
+		warn "no backups found in $BACKUP_ROOT"
+		exit 0
+	fi
+
+	for b in "${backups[@]}"; do
+		name=$(basename "$b")
+		size=$(du -sh "$b" 2>/dev/null | cut -f1)
+		contents=$(ls -1 "$b" 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+		echo -e "  ${BOLD}$name${NC}  ${size}  [${contents}]"
+	done
+
+	echo ""
+	log "usage: ./restore <target>  (e.g. ./restore Personal)"
+	exit 0
+fi
+
+# -----------------------------------------------------------------------
+# Find the backup to restore from
+# -----------------------------------------------------------------------
+if [[ -n "$from_backup" ]]; then
+	backup_dir="$BACKUP_ROOT/$from_backup"
+	if [[ ! -d "$backup_dir" ]]; then
+		err "backup not found: $backup_dir"
+		exit 1
+	fi
+else
+	backup_dir=$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+	if [[ -z "$backup_dir" ]]; then
+		err "no backups found in $BACKUP_ROOT"
+		exit 1
+	fi
+fi
+
+backup_name=$(basename "$backup_dir")
+backup_size=$(du -sh "$backup_dir" 2>/dev/null | cut -f1)
+log "restoring from: $backup_name ($backup_size)"
+
+# -----------------------------------------------------------------------
+# Confirm with user (skip in dry-run)
+# -----------------------------------------------------------------------
+if [[ $dry_run -eq 0 ]]; then
+	echo ""
+	warn "this will overwrite files in your home directory"
+	warn "targets: ${targets[*]}"
+	warn "source:  $backup_dir"
+	warn "mode:    safe merge (no --delete, won't remove local files)"
+	echo ""
+	echo -n "type 'yes' to continue: "
+	read -r confirm
+	if [[ "$confirm" != "yes" ]]; then
+		log "aborted"
+		exit 0
+	fi
+	echo ""
+fi
+
+# -----------------------------------------------------------------------
+# Run restore
+# -----------------------------------------------------------------------
+start_time=$SECONDS
+sync_failed=0
+
+if [[ $dry_run -eq 1 ]]; then
+	warn "=== DRY RUN — no changes will be made ==="
+	echo ""
+fi
+
+for target in "${targets[@]}"; do
+	src_path="$backup_dir/$target"
+
+	if [[ ! -d "$src_path" ]]; then
+		err "not found in backup: $target"
+		err "available: $(ls -1 "$backup_dir" 2>/dev/null | tr '\n' ' ')"
+		continue
+	fi
+
+	dest_path="$HOME/$target"
+
+	# ---------------------------------------------------------------
+	# DRY RUN: serial, verbose
+	# ---------------------------------------------------------------
+	if [[ $dry_run -eq 1 ]]; then
+		info "restoring $target (dry run)..."
+		mkdir -p "$dest_path"
+		rsync "${RSYNC_FLAGS[@]}" --dry-run -v \
+			"$src_path/" "$dest_path/" 2>&1 | tail -5
+		log "done: $target (dry run)"
+		echo ""
+		continue
+	fi
+
+	# ---------------------------------------------------------------
+	# REAL RESTORE: parallel per top-level item
+	# ---------------------------------------------------------------
+	info "restoring $target ($jobs parallel workers)..."
+	mkdir -p "$dest_path"
+
+	# Collect all top-level items
+	items=()
+	for item in "$src_path"/* "$src_path"/.*; do
+		[[ -e "$item" ]] || continue
+		name=$(basename "$item")
+		[[ "$name" == "." || "$name" == ".." ]] && continue
+		items+=("$name")
+	done
+
+	total_items=${#items[@]}
+	done_count=0
+	batch_pids=()
+
+	for name in "${items[@]}"; do
+		item_path="$src_path/$name"
+
+		if [[ -d "$item_path" ]]; then
+			mkdir -p "$dest_path/$name"
+			ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" \
+				"$item_path/" "$dest_path/$name/" >/dev/null 2>&1 &
+		else
+			ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" \
+				"$item_path" "$dest_path/" >/dev/null 2>&1 &
+		fi
+		batch_pids+=($!)
+
+		if (( ${#batch_pids[@]} >= jobs )); then
+			for pid in "${batch_pids[@]}"; do
+				wait "$pid" 2>/dev/null || sync_failed=1
+				done_count=$(( done_count + 1 ))
+			done
+			info "  [$done_count/$total_items] items restored..."
+			batch_pids=()
+		fi
+	done
+
+	for pid in "${batch_pids[@]}"; do
+		wait "$pid" 2>/dev/null || sync_failed=1
+		done_count=$(( done_count + 1 ))
+	done
+
+	log "done: $target [$done_count/$total_items items]"
+	echo ""
+done
+
+elapsed=$(( SECONDS - start_time ))
+
+# -----------------------------------------------------------------------
+# Summary
+# -----------------------------------------------------------------------
+echo ""
+echo -e "${GREEN}================================${NC}"
+log "restore complete"
+echo -e "${GREEN}================================${NC}"
+
+if [[ $dry_run -eq 0 ]]; then
+	log "time: ${elapsed}s"
+	log "source: $backup_name"
+	log "targets: ${targets[*]}"
+
+	if [[ $sync_failed -ne 0 ]]; then
+		echo ""
+		warn "some items had sync errors (non-fatal)"
+	fi
+else
+	warn "dry run — nothing was changed"
+fi

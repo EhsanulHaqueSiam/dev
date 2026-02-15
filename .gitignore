@@ -1,0 +1,15 @@
+# mpv caches and personal data
+env/.config/mpv/cache/
+env/.config/mpv/script-opts/memo-history.log
+
+# Platform-specific binaries
+env/.config/mpv/scripts/uosc/bin/
+
+# Font files (download fresh instead)
+env/.config/mpv/fonts/*.ttf
+env/.config/mpv/fonts/*.otf
+
+# Editor
+*.swp
+*.swo
+*~

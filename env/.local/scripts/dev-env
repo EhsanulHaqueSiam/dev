@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 
+# Auto-detect repo location from this script's symlink target
+SCRIPT_SOURCE="$(readlink -f "${BASH_SOURCE[0]}")"
+REPO_DIR="$(dirname "$(dirname "$(dirname "$(dirname "$SCRIPT_SOURCE")")")")"
+
 (
-cd $HOME/dev
+cd "$REPO_DIR"
 ./dev-env
 hash -r
 )
