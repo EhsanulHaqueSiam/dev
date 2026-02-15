@@ -56,9 +56,11 @@ What it does:
 
 ### `./backup` — Backup to external SSD
 
-Syncs project directories to timestamped backups on the external SSD (`/run/media/siam/TRANSCEND`). Two modes:
+Syncs project directories to timestamped backups on the external SSD (`/run/media/siam/TRANSCEND`). Optimized for exFAT with parallel rsync.
 
-**Full backup** — creates a new timestamped directory, prunes old ones:
+#### Two Modes
+
+**Full backup** — creates a new timestamped snapshot, auto-prunes old ones:
 ```bash
 ./backup                           # backup all sources (Personal)
 ./backup Personal                  # backup only Personal
@@ -73,30 +75,101 @@ Syncs project directories to timestamped backups on the external SSD (`/run/medi
 ./backup Personal/portfolio        # update just portfolio/ inside latest
 ```
 
-Optimized for the exFAT SSD:
-- **Parallel rsync** — 4 concurrent workers with `ionice` I/O priority
-- **exFAT flags** — `--no-perms --no-owner --no-group --no-links` (exFAT doesn't support these)
-- **`--inplace`** — writes directly to files, skips temp file + rename (faster on exFAT)
-- **`--whole-file`** — skips delta algorithm (pointless for local copies)
-- **`--modify-window=1`** — handles exFAT 2-second timestamp granularity
-- **Excludes** — `.git/`, `node_modules/`, `__pycache__/`, `.venv/`, `target/`, `dist/`, `build/`, `.cache/`, `wandb/`, `.uv-cache/`, etc.
+The mode is auto-detected: if the target contains a `/` (e.g. `Personal/dev`), it runs in subfolder mode. Otherwise it creates a new full snapshot.
 
-Backups are automatically pruned — only the latest N are kept (default 2).
+#### Performance
+
+- **Parallel rsync** — 4 concurrent workers (configurable with `--jobs`), each top-level directory/file gets its own rsync process
+- **`ionice -c 2 -n 0`** — best-effort I/O scheduling priority for maximum throughput
+- **`--whole-file`** — skips rsync delta algorithm (pointless for local disk-to-disk copies)
+- **`--inplace`** — writes directly to destination files, skips temp file + rename (faster on exFAT, avoids fragmentation)
+- **Typical speed** — ~32GB in ~42s (~760 MB/s)
+
+#### exFAT Optimization
+
+The SSD uses exFAT which doesn't support Unix metadata. All rsync flags are tuned for this:
+
+| Flag | Why |
+|------|-----|
+| `-r --times` | Recursive with modification times |
+| `--modify-window=1` | exFAT has 2-second timestamp granularity |
+| `--no-links` | exFAT can't store symlinks |
+| `--no-perms` | exFAT ignores Unix permissions |
+| `--no-owner` | exFAT ignores file ownership |
+| `--no-group` | exFAT ignores group ownership |
+| `--omit-dir-times` | exFAT directory timestamps are unreliable |
+| `--whole-file` | Skip delta algorithm (local copy) |
+| `--inplace` | Write directly, no temp files |
+
+#### Excludes
+
+These directories/files are automatically excluded from backups:
+
+`.git/`, `node_modules/`, `__pycache__/`, `.venv/`, `venv/`, `.conda/`, `*.pyc`, `target/`, `dist/`, `build/`, `.cache/`, `.next/`, `.nuxt/`, `.ror/`, `.playwright-mcp/`, `.DS_Store`, `Thumbs.db`, `wandb/`, `.uv-cache/`, `.plugin_symlinks/`
+
+#### Auto-Pruning
+
+After each full backup, old snapshots are automatically deleted to keep only the latest N (default 2). Subfolder updates never trigger pruning. Override with `--keep`:
+
+```bash
+./backup --keep 5                  # keep 5 most recent backups
+./backup --keep 1                  # keep only the latest
+```
+
+#### Safety
+
+- SSD mount is verified before any operation
+- `System Volume Information/` is never touched (backups write only inside `backups/`)
+- Dry run mode (`--dry`) previews changes without writing anything
+- Summary shows elapsed time, backup size, remaining backups, and free space
 
 ### `./restore` — Restore from external SSD
 
 Restores project directories from the SSD back to `$HOME`. Safe merge — adds/overwrites but never removes local files (no `--delete`).
 
+#### List Available Backups
+
 ```bash
-./restore                                      # list available backups with sizes
-./restore Personal                             # restore all of Personal from latest
-./restore Personal/dev                         # restore only dev/ subfolder
-./restore --from 2026-02-15_14-30-00 Personal  # from a specific backup
-./restore --dry Personal                       # preview, no changes
-./restore --jobs 8 Personal                    # override parallel workers (default: 4)
+./restore                          # shows all backups with sizes and contents
 ```
 
-Parallel restore with the same worker pool as backup. Requires typing `yes` to confirm (skipped in `--dry` mode).
+Output:
+```
+[restore] available backups on SSD:
+
+  2026-02-15_14-30-00  32G  [Personal]
+  2026-02-15_18-00-00  32G  [Personal]
+
+[restore] usage: ./restore <target>  (e.g. ./restore Personal)
+```
+
+#### Restore from Latest
+
+```bash
+./restore Personal                 # restore all of Personal from latest backup
+./restore Personal/dev             # restore only the dev/ subfolder
+```
+
+#### Restore from Specific Backup
+
+```bash
+./restore --from 2026-02-15_14-30-00 Personal       # specific timestamp
+./restore --from 2026-02-15_14-30-00 Personal/dev    # specific subfolder from specific backup
+```
+
+#### Preview and Configure
+
+```bash
+./restore --dry Personal           # preview what would change, no writes
+./restore --jobs 8 Personal        # override parallel workers (default: 4)
+```
+
+#### Safety
+
+- **Safe merge** — no `--delete` flag, so local files not in the backup are preserved
+- **Confirmation required** — must type `yes` before any restore (skipped in `--dry` mode)
+- **Parallel restore** — same worker pool as backup with `ionice` for I/O priority
+- **Error reporting** — non-fatal sync errors are reported but don't abort the restore
 
 ### `./tui` — Interactive Terminal UI
 
@@ -107,11 +180,11 @@ Full interactive menu for all dev environment operations. Powered by [gum](https
 ```
 
 Features:
-- **Install Tools** — select all or pick individual tools from `runs/`
-- **Deploy Configs** — symlink configs with dry run preview
-- **Backup** — full backup, selective project backup, subfolder update, dry run, configure
-- **Restore** — restore from latest/specific backup, pick projects or subfolders, dry run
-- **Status** — SSD info, backup list, system specs, git status
+- **Install Tools** — install all, install missing only, select individual tools with installed status and versions, dry run preview
+- **Deploy Configs** — deploy all, deploy unlinked only, select individual configs with symlink status (linked/not linked/conflict), view status panel
+- **Backup** — full backup, selective project backup, subfolder update, dry run, configure retention and workers
+- **Restore** — restore from latest/specific backup, pick projects or subfolders, dry run preview
+- **Status** — SSD info, backup list with sizes, system specs (CPU, rsync, gum), git status
 
 ### `./make_runs_executable` — Helper
 
@@ -270,17 +343,26 @@ dev/
 
 **`./dev-env`** walks through `env/` and creates symlinks:
 - Each directory in `env/.config/` gets symlinked to `~/.config/`
+- Each standalone file in `env/.config/` (e.g. `starship.toml`) gets symlinked too
 - Each file in `env/.local/scripts/` gets symlinked to `~/.local/scripts/`
-- Home dotfiles (`.zshrc`, `.profile`, `.xprofile`) get symlinked to `~/`
+- Home dotfiles are auto-detected from `env/` (any dotfile like `.zshrc`, `.profile`, `.xprofile`)
+- Already-linked configs are detected and skipped (idempotent)
+- Existing non-symlinked configs are backed up to `~/.config-backup/` before replacing
 - Reloads Hyprland if available
 
 Symlinks mean changes flow both ways — edit configs in place, commit from the repo.
 
-**`./backup`** syncs project directories to the Transcend exFAT SSD at `/run/media/siam/TRANSCEND/backups/`. Each full backup creates a timestamped directory (`2026-02-15_14-30-00/`). Subfolder backups (`Personal/dev`) update the latest existing backup in-place instead. Top-level items are synced in parallel (4 workers by default) with `ionice` for I/O priority. Old backups are pruned to keep only the latest 2 (configurable with `--keep`).
+**`./backup`** syncs project directories to the Transcend exFAT SSD at `/run/media/siam/TRANSCEND/backups/`. Two modes:
+- **Full backup**: creates a timestamped directory (`2026-02-15_14-30-00/`), prunes old ones past retention limit
+- **Subfolder update**: detects `/` in target (e.g. `Personal/dev`), updates the latest existing backup in-place without creating a new snapshot or pruning
 
-**`./restore`** syncs from the SSD back to `$HOME`. With no arguments, lists all available backups with sizes. Uses safe merge (no `--delete`) so local files that don't exist in the backup are preserved. Also parallelized for speed.
+Top-level items are synced in parallel (4 workers by default) with `ionice -c 2 -n 0` for I/O priority. All rsync flags are tuned for exFAT: no perms, no symlinks, no dir timestamps, inplace writes, whole-file transfers.
 
-SSD layout:
+**`./restore`** syncs from the SSD back to `$HOME`. With no arguments, lists all available backups with sizes and contents. Uses safe merge (no `--delete`) so local files that don't exist in the backup are preserved. Requires typing `yes` to confirm. Also parallelized with the same worker pool.
+
+**`./tui`** provides an interactive gum-based interface for everything. Auto-installs gum if missing. Shows real-time status: which tools are installed (with versions), which configs are linked (with conflict detection), SSD info, and backup inventory.
+
+**SSD layout:**
 ```
 /run/media/siam/TRANSCEND/
 ├── System Volume Information/    # NEVER TOUCHED
@@ -290,6 +372,12 @@ SSD layout:
     └── 2026-02-15_18-00-00/
         └── Personal/             # full snapshot
 ```
+
+**Expanding the system:**
+- Add a tool: create `runs/mytool` (auto-detected by TUI and `./run`)
+- Add a config: create `env/.config/mytool/` (auto-detected by TUI and `./dev-env`)
+- Add a dotfile: create `env/.mydotfile` (auto-detected by TUI and `./dev-env`)
+- No code changes needed — everything is discovered dynamically
 
 ## Flags Reference
 
