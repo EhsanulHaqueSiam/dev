@@ -2,4 +2,4 @@
 set -euo pipefail
 
 # age — modern encryption tool (used for SSH key backup)
-paru -S --noconfirm --needed age
+yay -S --noconfirm --needed age

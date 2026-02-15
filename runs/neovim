@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-paru -S --noconfirm --needed neovim
+yay -S --noconfirm --needed neovim
 
 # Dependencies for clipboard, treesitter compilation, and mason
-paru -S --noconfirm --needed xclip wl-clipboard gcc make unzip
+yay -S --noconfirm --needed xclip wl-clipboard gcc make unzip

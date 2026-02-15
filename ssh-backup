@@ -50,8 +50,8 @@ done
 # -----------------------------------------------------------------------
 if ! command -v age &>/dev/null; then
 	warn "age not found — installing..."
-	if command -v paru &>/dev/null; then
-		paru -S --noconfirm --needed age
+	if command -v yay &>/dev/null; then
+		yay -S --noconfirm --needed age
 	elif command -v pacman &>/dev/null; then
 		sudo pacman -S --noconfirm --needed age
 	else

@@ -39,19 +39,19 @@ failed=()
 skipped=()
 
 # -----------------------------------------------------------------------
-# Auto-install paru (AUR helper) if missing — most installers need it
+# Auto-install yay (AUR helper) if missing — most installers need it
 # -----------------------------------------------------------------------
-if [[ $env_only == "0" && $dry_run == "0" ]] && ! command -v paru &>/dev/null; then
-	warn "paru not found — installing (required by most tool scripts)..."
+if [[ $env_only == "0" && $dry_run == "0" ]] && ! command -v yay &>/dev/null; then
+	warn "yay not found — installing yay-bin (required by most tool scripts)..."
 	sudo pacman -S --needed --noconfirm base-devel git
 	tmpdir=$(mktemp -d)
-	git clone https://aur.archlinux.org/paru.git "$tmpdir/paru"
-	(cd "$tmpdir/paru" && makepkg -si --noconfirm)
+	git clone https://aur.archlinux.org/yay-bin.git "$tmpdir/yay-bin"
+	(cd "$tmpdir/yay-bin" && makepkg -si --noconfirm)
 	rm -rf "$tmpdir"
-	if command -v paru &>/dev/null; then
-		log "paru installed successfully"
+	if command -v yay &>/dev/null; then
+		log "yay installed successfully"
 	else
-		err "paru installation failed — some tools may not install"
+		err "yay installation failed — some tools may not install"
 	fi
 	echo ""
 fi

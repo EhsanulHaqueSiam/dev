@@ -212,7 +212,7 @@ ssh -T git@github.com
 **Security:**
 - Uses age encryption (X25519 + ChaCha20-Poly1305 + scrypt for passphrase)
 - Private keys are never stored unencrypted on the exFAT SSD
-- age auto-installs if missing (paru/pacman)
+- age auto-installs if missing (yay/pacman)
 - Passphrase is the only way to decrypt — choose a strong one
 
 ### `./tui` — Interactive Terminal UI
@@ -291,7 +291,7 @@ cd ~/dev
 ```bash
 # runs/mytool
 #!/usr/bin/env bash
-paru -S --noconfirm --needed mytool
+yay -S --noconfirm --needed mytool
 ```
 
 2. Make it executable:
@@ -464,7 +464,8 @@ Top-level items are synced in parallel (4 workers by default) with `ionice -c 2 
 
 ## Requirements
 
-- **OS:** Arch Linux (uses `paru`/`pacman`)
+- **OS:** Arch Linux / Omarchy (uses `yay`/`pacman`)
 - **Dependencies:** `git`, `curl`, `bash`
-- **Optional:** `paru` (AUR helper — most installers use it)
+- **Optional:** `yay` (AUR helper — auto-installed by `./run` if missing)
 - **Optional:** `gum` (auto-installed by `./tui` if missing)
+- **Optional:** `age` (auto-installed by `./ssh-backup` if missing)

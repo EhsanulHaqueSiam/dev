@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-paru -S --noconfirm --needed python
+yay -S --noconfirm --needed python

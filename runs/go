@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-paru -S --noconfirm --needed go
+yay -S --noconfirm --needed go
 
 # Create GOPATH directory
 mkdir -p "$HOME/go"
