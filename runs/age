@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# age — modern encryption tool (used for SSH key backup)
+paru -S --noconfirm --needed age

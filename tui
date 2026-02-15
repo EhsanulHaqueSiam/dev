@@ -121,11 +121,12 @@ main_menu() {
 		local choice
 		choice=$(gum choose \
 			--header "What would you like to do?" \
-			--height 10 \
+			--height 11 \
 			"Install Tools" \
 			"Deploy Configs" \
 			"Backup to SSD" \
 			"Restore from SSD" \
+			"SSH Keys" \
 			"Status" \
 			"Quit" \
 		) || return 0
@@ -135,6 +136,7 @@ main_menu() {
 			"Deploy Configs") menu_deploy ;;
 			"Backup to SSD")  menu_backup ;;
 			"Restore from SSD") menu_restore ;;
+			"SSH Keys")       menu_ssh ;;
 			"Status")         menu_status ;;
 			"Quit")           return 0 ;;
 		esac
@@ -147,6 +149,7 @@ main_menu() {
 tool_installed() {
 	local tool="$1"
 	case "$tool" in
+		age)          command -v age &>/dev/null ;;
 		atuin)        command -v atuin &>/dev/null ;;
 		bat)          command -v bat &>/dev/null ;;
 		bun)          command -v bun &>/dev/null ;;
@@ -197,6 +200,7 @@ tool_version() {
 		uv)        uv --version 2>/dev/null | awk '{print $2}' ;;
 		xh)        xh --version 2>/dev/null | head -1 | awk '{print $2}' ;;
 		yazi)      yazi --version 2>/dev/null | awk '{print $2}' ;;
+		age)       age --version 2>/dev/null | awk '{print $2}' | sed 's/v//' ;;
 		atuin)     atuin --version 2>/dev/null | awk '{print $2}' ;;
 		fnm)       fnm --version 2>/dev/null | sed 's/fnm //' ;;
 		ollama)    ollama --version 2>/dev/null | awk '{print $NF}' ;;
@@ -1209,6 +1213,193 @@ do_restore_dry() {
 
 	echo ""
 	"$DEV_ENV/restore" --dry "$selected"
+	pause
+}
+
+# -----------------------------------------------------------------------
+# SSH Keys
+# -----------------------------------------------------------------------
+SSH_BACKUP_DIR="$SSD/ssh-keys"
+
+menu_ssh() {
+	clear
+	header "SSH Keys"
+
+	# Show current SSH key status
+	if [[ -d "$HOME/.ssh" ]]; then
+		local key_count=0
+		for f in "$HOME/.ssh"/id_*; do
+			[[ -f "$f" && "$f" != *.pub ]] && key_count=$(( key_count + 1 ))
+		done
+		info "Local: $key_count private key(s) in ~/.ssh/"
+	else
+		warn "Local: no ~/.ssh/ directory"
+	fi
+
+	# Show SSD backup status
+	if mountpoint -q "$SSD" 2>/dev/null && [[ -d "$SSH_BACKUP_DIR" ]]; then
+		local backup_count
+		backup_count=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+		if [[ $backup_count -gt 0 ]]; then
+			local latest_backup_name
+			latest_backup_name=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | sort | tail -1 | xargs basename)
+			info "SSD: $backup_count backup(s), latest: $latest_backup_name"
+		else
+			warn "SSD: no SSH backups"
+		fi
+	elif mountpoint -q "$SSD" 2>/dev/null; then
+		warn "SSD: no SSH backups yet"
+	else
+		error "SSD: not mounted"
+	fi
+
+	echo ""
+
+	local choice
+	choice=$(gum choose \
+		--header "SSH key management:" \
+		--height 8 \
+		"Backup SSH Keys" \
+		"Restore SSH Keys" \
+		"List Backups" \
+		"View Local Keys" \
+		"Dry Run (preview)" \
+		"Back" \
+	) || return 0
+
+	case "$choice" in
+		"Backup SSH Keys")
+			do_ssh_backup
+			;;
+		"Restore SSH Keys")
+			do_ssh_restore
+			;;
+		"List Backups")
+			echo ""
+			"$DEV_ENV/ssh-backup" --list
+			pause
+			;;
+		"View Local Keys")
+			do_ssh_view
+			;;
+		"Dry Run (preview)")
+			echo ""
+			"$DEV_ENV/ssh-backup" --dry
+			pause
+			;;
+		"Back") return 0 ;;
+	esac
+}
+
+do_ssh_backup() {
+	if ! mountpoint -q "$SSD" 2>/dev/null; then
+		error "SSD not mounted"
+		pause
+		return
+	fi
+
+	if [[ ! -d "$HOME/.ssh" ]]; then
+		error "No ~/.ssh/ directory found"
+		pause
+		return
+	fi
+
+	echo ""
+	warn "This will encrypt your SSH keys with a passphrase"
+	warn "and save the encrypted backup to the SSD"
+	echo ""
+
+	if gum confirm "Backup SSH keys to SSD?"; then
+		echo ""
+		"$DEV_ENV/ssh-backup"
+		pause
+	fi
+}
+
+do_ssh_restore() {
+	if ! mountpoint -q "$SSD" 2>/dev/null; then
+		error "SSD not mounted"
+		pause
+		return
+	fi
+
+	if [[ ! -d "$SSH_BACKUP_DIR" ]]; then
+		error "No SSH backups found on SSD"
+		pause
+		return
+	fi
+
+	# List available backups for selection
+	local backups=()
+	local labels=()
+	mapfile -t backups < <(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | sort)
+
+	if [[ ${#backups[@]} -eq 0 ]]; then
+		error "No SSH backups found"
+		pause
+		return
+	fi
+
+	for b in "${backups[@]}"; do
+		local size
+		size=$(du -sh "$b" 2>/dev/null | cut -f1)
+		labels+=("$(basename "$b")  ($size)")
+	done
+
+	echo ""
+	local selected
+	selected=$(printf '%s\n' "${labels[@]}" | gum choose \
+		--header "Select backup to restore:" \
+		--height 10 \
+	) || return 0
+
+	local filename
+	filename=$(echo "$selected" | awk '{print $1}')
+
+	echo ""
+	warn "Will restore SSH keys from: $filename"
+	warn "Existing keys will be backed up to ~/.ssh.bak.*"
+	echo ""
+
+	if gum confirm "Restore SSH keys?"; then
+		echo ""
+		echo "yes" | "$DEV_ENV/ssh-restore" --from "$filename"
+		pause
+	fi
+}
+
+do_ssh_view() {
+	clear
+	header "Local SSH Keys"
+
+	if [[ ! -d "$HOME/.ssh" ]]; then
+		warn "No ~/.ssh/ directory"
+		pause
+		return
+	fi
+
+	for f in "$HOME/.ssh"/*; do
+		[[ -e "$f" ]] || continue
+		local name perms size
+		name=$(basename "$f")
+		perms=$(stat -c '%a' "$f")
+		size=$(du -sh "$f" 2>/dev/null | cut -f1)
+
+		case "$name" in
+			id_*|*.pem)
+				if [[ "$name" == *.pub ]]; then
+					success "  $name  ($perms)  $size  [public key]"
+				else
+					info "  $name  ($perms)  $size  [private key]"
+				fi
+				;;
+			config)       info "  $name  ($perms)  $size  [ssh config]" ;;
+			known_hosts)  info "  $name  ($perms)  $size  [known hosts]" ;;
+			known_hosts.old) gum style --foreground 240 "  $name  ($perms)  $size" ;;
+			*)            info "  $name  ($perms)  $size" ;;
+		esac
+	done
+
 	pause
 }
 

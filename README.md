@@ -171,6 +171,50 @@ Output:
 - **Parallel restore** — same worker pool as backup with `ionice` for I/O priority
 - **Error reporting** — non-fatal sync errors are reported but don't abort the restore
 
+### `./ssh-backup` / `./ssh-restore` — SSH Key Management
+
+Encrypts SSH keys with [age](https://github.com/FiloSottile/age) and stores them on the SSD. Private keys are never stored in plaintext on the exFAT drive.
+
+**Backup SSH keys:**
+```bash
+./ssh-backup                       # encrypt ~/.ssh/ → save to SSD
+./ssh-backup --dry                 # preview what would be backed up
+./ssh-backup --list                # list existing SSH backups on SSD
+```
+
+**Restore SSH keys:**
+```bash
+./ssh-restore                      # restore from latest backup
+./ssh-restore --list               # list available backups
+./ssh-restore --from <filename>    # restore specific backup
+./ssh-restore --dry                # preview without restoring
+```
+
+**How it works:**
+1. `ssh-backup` tars `~/.ssh/` and encrypts it with `age -p` (passphrase-based)
+2. The encrypted `.tar.age` file is saved to `$SSD/ssh-keys/` with hostname + timestamp
+3. `ssh-restore` decrypts the archive and restores files to `~/.ssh/`
+4. Permissions are automatically fixed (600 for private keys, 644 for public, 700 for dir)
+5. Existing `~/.ssh/` is backed up to `~/.ssh.bak.*` before overwriting
+
+**New machine workflow:**
+```bash
+# 1. Plug in SSD, clone repo
+git clone git@github.com:EhsanulHaqueSiam/dev.git ~/Personal/dev
+
+# 2. Restore SSH keys (age auto-installs if missing)
+cd ~/Personal/dev && ./ssh-restore
+
+# 3. Now git, GitHub, and all servers work immediately
+ssh -T git@github.com
+```
+
+**Security:**
+- Uses age encryption (X25519 + ChaCha20-Poly1305 + scrypt for passphrase)
+- Private keys are never stored unencrypted on the exFAT SSD
+- age auto-installs if missing (paru/pacman)
+- Passphrase is the only way to decrypt — choose a strong one
+
 ### `./tui` — Interactive Terminal UI
 
 Full interactive menu for all dev environment operations. Powered by [gum](https://github.com/charmbracelet/gum) — auto-installs if missing.
@@ -184,6 +228,7 @@ Features:
 - **Deploy Configs** — deploy all, deploy unlinked only, select individual configs with symlink status (linked/not linked/conflict), view status panel
 - **Backup** — full backup, selective project backup, subfolder update, dry run, configure retention and workers
 - **Restore** — restore from latest/specific backup, pick projects or subfolders, dry run preview
+- **SSH Keys** — backup/restore SSH keys with age encryption, list backups, view local keys
 - **Status** — SSD info, backup list with sizes, system specs (CPU, rsync, gum), git status
 
 ### `./make_runs_executable` — Helper
@@ -287,10 +332,13 @@ dev/
 ├── dev-env                # Config deployer (symlinks env/ to ~/)
 ├── backup                 # Backup projects to external SSD
 ├── restore                # Restore projects from external SSD
+├── ssh-backup             # Encrypt SSH keys to SSD (age)
+├── ssh-restore            # Decrypt SSH keys from SSD (age)
 ├── tui                    # Interactive terminal UI (gum)
 ├── make_runs_executable   # chmod helper
 │
 ├── runs/                  # Individual tool installers
+│   ├── age                # Modern encryption tool (SSH key backup)
 │   ├── atuin              # Shell history manager
 │   ├── bat                # Cat clone with syntax highlighting
 │   ├── bun                # JavaScript/TypeScript runtime
@@ -366,11 +414,13 @@ Top-level items are synced in parallel (4 workers by default) with `ionice -c 2 
 ```
 /run/media/siam/TRANSCEND/
 ├── System Volume Information/    # NEVER TOUCHED
-└── backups/
-    ├── 2026-02-15_14-30-00/
-    │   └── Personal/             # full snapshot
-    └── 2026-02-15_18-00-00/
-        └── Personal/             # full snapshot
+├── backups/
+│   ├── 2026-02-15_14-30-00/
+│   │   └── Personal/             # full snapshot
+│   └── 2026-02-15_18-00-00/
+│       └── Personal/             # full snapshot
+└── ssh-keys/
+    └── ssh-keys_hostname_2026-02-15_14-30-00.tar.age  # age-encrypted
 ```
 
 **Expanding the system:**
@@ -403,6 +453,13 @@ Top-level items are synced in parallel (4 workers by default) with `ionice -c 2 
 | `./restore --from <ts> <target>` | Restore from specific backup |
 | `./restore --dry <target>` | Preview restore |
 | `./restore --jobs N <target>` | Override parallel workers (default: 4) |
+| `./ssh-backup` | Encrypt SSH keys to SSD |
+| `./ssh-backup --dry` | Preview SSH backup |
+| `./ssh-backup --list` | List SSH backups on SSD |
+| `./ssh-restore` | Restore SSH keys from latest backup |
+| `./ssh-restore --list` | List available SSH backups |
+| `./ssh-restore --from <file>` | Restore specific SSH backup |
+| `./ssh-restore --dry` | Preview SSH restore |
 | `./tui` | Interactive terminal UI (all features) |
 
 ## Requirements
