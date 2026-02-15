@@ -39,24 +39,6 @@ failed=()
 skipped=()
 
 # -----------------------------------------------------------------------
-# Auto-install yay (AUR helper) if missing — most installers need it
-# -----------------------------------------------------------------------
-if [[ $env_only == "0" && $dry_run == "0" ]] && ! command -v yay &>/dev/null; then
-	warn "yay not found — installing yay-bin (required by most tool scripts)..."
-	sudo pacman -S --needed --noconfirm base-devel git
-	tmpdir=$(mktemp -d)
-	git clone https://aur.archlinux.org/yay-bin.git "$tmpdir/yay-bin"
-	(cd "$tmpdir/yay-bin" && makepkg -si --noconfirm)
-	rm -rf "$tmpdir"
-	if command -v yay &>/dev/null; then
-		log "yay installed successfully"
-	else
-		err "yay installation failed — some tools may not install"
-	fi
-	echo ""
-fi
-
-# -----------------------------------------------------------------------
 # Run installers (unless --env flag to only deploy configs)
 # -----------------------------------------------------------------------
 if [[ $env_only == "0" ]]; then

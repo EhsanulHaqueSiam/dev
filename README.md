@@ -466,6 +466,6 @@ Top-level items are synced in parallel (4 workers by default) with `ionice -c 2 
 
 - **OS:** Arch Linux / Omarchy (uses `yay`/`pacman`)
 - **Dependencies:** `git`, `curl`, `bash`
-- **Optional:** `yay` (AUR helper — auto-installed by `./run` if missing)
+- **Required:** `yay` (AUR helper — pre-installed on Omarchy)
 - **Optional:** `gum` (auto-installed by `./tui` if missing)
 - **Optional:** `age` (auto-installed by `./ssh-backup` if missing)
