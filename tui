@@ -126,7 +126,7 @@ main_menu() {
 			"Deploy Configs" \
 			"Backup to SSD" \
 			"Restore from SSD" \
-			"SSH Keys" \
+			"Secrets" \
 			"Status" \
 			"Quit" \
 		) || return 0
@@ -136,7 +136,7 @@ main_menu() {
 			"Deploy Configs") menu_deploy ;;
 			"Backup to SSD")  menu_backup ;;
 			"Restore from SSD") menu_restore ;;
-			"SSH Keys")       menu_ssh ;;
+			"Secrets")        menu_secrets ;;
 			"Status")         menu_status ;;
 			"Quit")           return 0 ;;
 		esac
@@ -152,6 +152,7 @@ tool_installed() {
 		age)          command -v age &>/dev/null ;;
 		atuin)        command -v atuin &>/dev/null ;;
 		bat)          command -v bat &>/dev/null ;;
+		bitwarden-cli) command -v bw &>/dev/null ;;
 		bun)          command -v bun &>/dev/null ;;
 		discord)      command -v discord &>/dev/null || pacman -Qi discord &>/dev/null ;;
 		expressvpn)   command -v expressvpn &>/dev/null ;;
@@ -195,6 +196,7 @@ tool_version() {
 		zsh)       zsh --version 2>/dev/null | awk '{print $2}' ;;
 		gum)       gum --version 2>/dev/null | awk '{print $3}' ;;
 		bat)       bat --version 2>/dev/null | awk '{print $2}' ;;
+		bitwarden-cli) bw --version 2>/dev/null ;;
 		eza)       eza --version 2>/dev/null | awk 'NR==2 {print $1}' | sed 's/v//' ;;
 		starship)  starship --version 2>/dev/null | head -1 | awk '{print $2}' ;;
 		uv)        uv --version 2>/dev/null | awk '{print $2}' ;;
@@ -1217,106 +1219,148 @@ do_restore_dry() {
 }
 
 # -----------------------------------------------------------------------
-# SSH Keys
+# Secrets (SSH Keys + .env files — age SSD + Bitwarden)
 # -----------------------------------------------------------------------
 SSH_BACKUP_DIR="$SSD/ssh-keys"
+ENV_BACKUP_DIR="$SSD/env-secrets"
 
-menu_ssh() {
+menu_secrets() {
 	clear
-	header "SSH Keys"
+	header "Secrets"
 
-	# Show current SSH key status
+	# SSH key status
 	if [[ -d "$HOME/.ssh" ]]; then
 		local key_count=0
 		for f in "$HOME/.ssh"/id_*; do
 			[[ -f "$f" && "$f" != *.pub ]] && key_count=$(( key_count + 1 ))
 		done
-		info "Local: $key_count private key(s) in ~/.ssh/"
+		info "SSH: $key_count private key(s) in ~/.ssh/"
 	else
-		warn "Local: no ~/.ssh/ directory"
+		warn "SSH: no ~/.ssh/ directory"
 	fi
 
-	# Show SSD backup status
-	if mountpoint -q "$SSD" 2>/dev/null && [[ -d "$SSH_BACKUP_DIR" ]]; then
-		local backup_count
-		backup_count=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
-		if [[ $backup_count -gt 0 ]]; then
-			local latest_backup_name
-			latest_backup_name=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | sort | tail -1 | xargs basename)
-			info "SSD: $backup_count backup(s), latest: $latest_backup_name"
-		else
-			warn "SSD: no SSH backups"
-		fi
-	elif mountpoint -q "$SSD" 2>/dev/null; then
-		warn "SSD: no SSH backups yet"
+	# SSD backup status
+	if mountpoint -q "$SSD" 2>/dev/null; then
+		local ssh_count=0 env_count=0
+		[[ -d "$SSH_BACKUP_DIR" ]] && ssh_count=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+		[[ -d "$ENV_BACKUP_DIR" ]] && env_count=$(find "$ENV_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+		info "SSD: $ssh_count SSH backup(s), $env_count env backup(s)"
 	else
 		error "SSD: not mounted"
+	fi
+
+	# Bitwarden status
+	if command -v bw &>/dev/null; then
+		local bw_status
+		bw_status=$(bw status 2>/dev/null | jq -r '.status' 2>/dev/null || echo "unknown")
+		info "Bitwarden: $bw_status"
+	else
+		gum style --foreground 240 "  Bitwarden: not installed"
 	fi
 
 	echo ""
 
 	local choice
 	choice=$(gum choose \
-		--header "SSH key management:" \
-		--height 8 \
-		"Backup SSH Keys" \
-		"Restore SSH Keys" \
-		"List Backups" \
-		"View Local Keys" \
-		"Dry Run (preview)" \
+		--header "Secrets management:" \
+		--height 9 \
+		"SSH Keys" \
+		"Env Files" \
+		"List All Secrets" \
+		"View Local SSH Keys" \
 		"Back" \
 	) || return 0
 
 	case "$choice" in
-		"Backup SSH Keys")
-			do_ssh_backup
-			;;
-		"Restore SSH Keys")
-			do_ssh_restore
-			;;
-		"List Backups")
+		"SSH Keys")        menu_secrets_ssh ;;
+		"Env Files")       menu_secrets_env ;;
+		"List All Secrets")
 			echo ""
-			"$DEV_ENV/ssh-backup" --list
+			"$DEV_ENV/secrets" --list
 			pause
 			;;
-		"View Local Keys")
-			do_ssh_view
-			;;
-		"Dry Run (preview)")
+		"View Local SSH Keys") do_ssh_view ;;
+		"Back") return 0 ;;
+	esac
+}
+
+menu_secrets_ssh() {
+	clear
+	header "SSH Keys"
+
+	# Show current status
+	if [[ -d "$HOME/.ssh" ]]; then
+		local key_count=0
+		for f in "$HOME/.ssh"/id_*; do
+			[[ -f "$f" && "$f" != *.pub ]] && key_count=$(( key_count + 1 ))
+		done
+		info "Local: $key_count private key(s)"
+	else
+		warn "Local: no ~/.ssh/ directory"
+	fi
+
+	if mountpoint -q "$SSD" 2>/dev/null && [[ -d "$SSH_BACKUP_DIR" ]]; then
+		local ssh_count
+		ssh_count=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+		info "SSD: $ssh_count age-encrypted backup(s)"
+	fi
+
+	if command -v bw &>/dev/null; then
+		info "Bitwarden: available"
+	fi
+
+	echo ""
+
+	local choice
+	choice=$(gum choose \
+		--header "SSH key operations:" \
+		--height 10 \
+		"Backup to SSD (age)" \
+		"Backup to Bitwarden" \
+		"Restore from SSD (age)" \
+		"Restore from Bitwarden" \
+		"Dry Run (SSD)" \
+		"Back" \
+	) || return 0
+
+	case "$choice" in
+		"Backup to SSD (age)")
 			echo ""
-			"$DEV_ENV/ssh-backup" --dry
+			if gum confirm "Encrypt SSH keys and save to SSD?"; then
+				echo ""
+				"$DEV_ENV/secrets" ssh backup
+			fi
+			pause
+			;;
+		"Backup to Bitwarden")
+			echo ""
+			if gum confirm "Store SSH keys in Bitwarden vault?"; then
+				echo ""
+				"$DEV_ENV/secrets" ssh backup --bw
+			fi
+			pause
+			;;
+		"Restore from SSD (age)")
+			do_ssh_restore_age
+			;;
+		"Restore from Bitwarden")
+			echo ""
+			if gum confirm "Restore SSH keys from Bitwarden?"; then
+				echo ""
+				"$DEV_ENV/secrets" ssh restore --bw
+			fi
+			pause
+			;;
+		"Dry Run (SSD)")
+			echo ""
+			"$DEV_ENV/secrets" ssh backup --dry
 			pause
 			;;
 		"Back") return 0 ;;
 	esac
 }
 
-do_ssh_backup() {
-	if ! mountpoint -q "$SSD" 2>/dev/null; then
-		error "SSD not mounted"
-		pause
-		return
-	fi
-
-	if [[ ! -d "$HOME/.ssh" ]]; then
-		error "No ~/.ssh/ directory found"
-		pause
-		return
-	fi
-
-	echo ""
-	warn "This will encrypt your SSH keys with a passphrase"
-	warn "and save the encrypted backup to the SSD"
-	echo ""
-
-	if gum confirm "Backup SSH keys to SSD?"; then
-		echo ""
-		"$DEV_ENV/ssh-backup"
-		pause
-	fi
-}
-
-do_ssh_restore() {
+do_ssh_restore_age() {
 	if ! mountpoint -q "$SSD" 2>/dev/null; then
 		error "SSD not mounted"
 		pause
@@ -1329,9 +1373,7 @@ do_ssh_restore() {
 		return
 	fi
 
-	# List available backups for selection
-	local backups=()
-	local labels=()
+	local backups=() labels=()
 	mapfile -t backups < <(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | sort)
 
 	if [[ ${#backups[@]} -eq 0 ]]; then
@@ -1353,19 +1395,102 @@ do_ssh_restore() {
 		--height 10 \
 	) || return 0
 
-	local filename
-	filename=$(echo "$selected" | awk '{print $1}')
-
 	echo ""
-	warn "Will restore SSH keys from: $filename"
-	warn "Existing keys will be backed up to ~/.ssh.bak.*"
+	warn "Will restore SSH keys from SSD"
+	warn "Existing keys backed up to ~/.ssh.bak.*"
 	echo ""
 
 	if gum confirm "Restore SSH keys?"; then
 		echo ""
-		echo "yes" | "$DEV_ENV/ssh-restore" --from "$filename"
-		pause
+		"$DEV_ENV/secrets" ssh restore
 	fi
+	pause
+}
+
+menu_secrets_env() {
+	clear
+	header "Env Files"
+
+	# Show .env count
+	local env_count=0
+	while read -r f; do
+		[[ -f "$f" ]] && env_count=$(( env_count + 1 ))
+	done < <(find "$HOME/Personal" -maxdepth 4 \
+		\( -name ".env" -o -name ".env.local" -o -name ".env.production" -o -name ".env.development" \) \
+		2>/dev/null | grep -v node_modules | grep -v .git/ | grep -v __pycache__ | grep -v .venv | grep -v .conda)
+
+	info "Local: $env_count .env file(s) in projects"
+
+	if mountpoint -q "$SSD" 2>/dev/null && [[ -d "$ENV_BACKUP_DIR" ]]; then
+		local backup_count
+		backup_count=$(find "$ENV_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+		info "SSD: $backup_count age-encrypted backup(s)"
+	fi
+
+	if command -v bw &>/dev/null; then
+		info "Bitwarden: available"
+	fi
+
+	echo ""
+
+	local choice
+	choice=$(gum choose \
+		--header "Env file operations:" \
+		--height 10 \
+		"Backup to SSD (age)" \
+		"Backup to Bitwarden" \
+		"Restore from SSD (age)" \
+		"Restore from Bitwarden" \
+		"List Env Files" \
+		"Dry Run (SSD)" \
+		"Back" \
+	) || return 0
+
+	case "$choice" in
+		"Backup to SSD (age)")
+			echo ""
+			if gum confirm "Encrypt .env files and save to SSD?"; then
+				echo ""
+				"$DEV_ENV/secrets" env backup
+			fi
+			pause
+			;;
+		"Backup to Bitwarden")
+			echo ""
+			if gum confirm "Store .env files in Bitwarden vault?"; then
+				echo ""
+				"$DEV_ENV/secrets" env backup --bw
+			fi
+			pause
+			;;
+		"Restore from SSD (age)")
+			echo ""
+			if gum confirm "Restore .env files from SSD?"; then
+				echo ""
+				"$DEV_ENV/secrets" env restore
+			fi
+			pause
+			;;
+		"Restore from Bitwarden")
+			echo ""
+			if gum confirm "Restore .env files from Bitwarden?"; then
+				echo ""
+				"$DEV_ENV/secrets" env restore --bw
+			fi
+			pause
+			;;
+		"List Env Files")
+			echo ""
+			"$DEV_ENV/secrets" env list
+			pause
+			;;
+		"Dry Run (SSD)")
+			echo ""
+			"$DEV_ENV/secrets" env backup --dry
+			pause
+			;;
+		"Back") return 0 ;;
+	esac
 }
 
 do_ssh_view() {
@@ -1478,6 +1603,28 @@ menu_status() {
 	local branch
 	branch=$(cd "$DEV_ENV" && git branch --show-current 2>/dev/null)
 	info "Branch: $branch"
+
+	echo ""
+
+	# Secrets
+	divider
+	gum style --foreground 212 --bold "  Secrets"
+	if mountpoint -q "$SSD" 2>/dev/null; then
+		local ssh_bk=0 env_bk=0
+		[[ -d "$SSH_BACKUP_DIR" ]] && ssh_bk=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+		[[ -d "$ENV_BACKUP_DIR" ]] && env_bk=$(find "$ENV_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+		info "SSD SSH backups: $ssh_bk"
+		info "SSD env backups: $env_bk"
+	else
+		warn "SSD not mounted"
+	fi
+	if command -v bw &>/dev/null; then
+		local bw_st
+		bw_st=$(bw status 2>/dev/null | jq -r '.status' 2>/dev/null || echo "unknown")
+		info "Bitwarden: $bw_st"
+	else
+		info "Bitwarden: not installed"
+	fi
 
 	echo ""
 

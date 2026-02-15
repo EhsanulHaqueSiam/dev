@@ -171,49 +171,93 @@ Output:
 - **Parallel restore** — same worker pool as backup with `ionice` for I/O priority
 - **Error reporting** — non-fatal sync errors are reported but don't abort the restore
 
-### `./ssh-backup` / `./ssh-restore` — SSH Key Management
+### `./secrets` — Secrets Manager (SSH Keys + .env Files)
 
-Encrypts SSH keys with [age](https://github.com/FiloSottile/age) and stores them on the SSD. Private keys are never stored in plaintext on the exFAT drive.
+Unified secrets management with two backends: **age** (encrypted to SSD, offline) and **Bitwarden** (cloud vault, synced across devices).
 
-**Backup SSH keys:**
+#### SSH Keys
+
+**age (SSD)** — encrypt SSH keys with a passphrase, store on external SSD:
 ```bash
-./ssh-backup                       # encrypt ~/.ssh/ → save to SSD
-./ssh-backup --dry                 # preview what would be backed up
-./ssh-backup --list                # list existing SSH backups on SSD
+./secrets ssh backup               # encrypt ~/.ssh/ → SSD
+./secrets ssh restore              # decrypt ~/.ssh/ ← SSD
+./secrets ssh backup --dry         # preview
 ```
 
-**Restore SSH keys:**
+**Bitwarden (cloud)** — store SSH keys as secure notes in your vault:
 ```bash
-./ssh-restore                      # restore from latest backup
-./ssh-restore --list               # list available backups
-./ssh-restore --from <filename>    # restore specific backup
-./ssh-restore --dry                # preview without restoring
+./secrets ssh backup --bw          # store SSH key → Bitwarden vault
+./secrets ssh restore --bw         # retrieve SSH key ← Bitwarden vault
+./secrets ssh backup --bw --dry    # preview
 ```
 
-**How it works:**
-1. `ssh-backup` tars `~/.ssh/` and encrypts it with `age -p` (passphrase-based)
-2. The encrypted `.tar.age` file is saved to `$SSD/ssh-keys/` with hostname + timestamp
-3. `ssh-restore` decrypts the archive and restores files to `~/.ssh/`
-4. Permissions are automatically fixed (600 for private keys, 644 for public, 700 for dir)
-5. Existing `~/.ssh/` is backed up to `~/.ssh.bak.*` before overwriting
+#### .env Files
 
-**New machine workflow:**
+Automatically discovers `.env`, `.env.local`, `.env.production`, `.env.development` files across all projects (up to 4 levels deep), excluding `node_modules`, `.git`, `__pycache__`, `.venv`, `.conda`.
+
+**age (SSD)** — encrypt all .env files into one archive:
 ```bash
-# 1. Plug in SSD, clone repo
+./secrets env backup               # encrypt .env files → SSD
+./secrets env restore              # decrypt .env files ← SSD
+./secrets env list                 # list all .env files in projects
+./secrets env backup --dry         # preview
+```
+
+**Bitwarden (cloud)** — store each .env file as a separate secure note:
+```bash
+./secrets env backup --bw          # store .env files → Bitwarden vault
+./secrets env restore --bw         # retrieve .env files ← Bitwarden vault
+./secrets env backup --bw --dry    # preview
+```
+
+#### List All Secrets
+
+```bash
+./secrets --list                   # show all secrets on SSD + Bitwarden status
+```
+
+#### How It Works
+
+**age backend:**
+1. SSH: tars `~/.ssh/` and encrypts with `age -p` (passphrase-based), saves to `$SSD/ssh-keys/`
+2. Env: tars all `.env` files preserving relative paths, encrypts with age, saves to `$SSD/env-secrets/`
+3. Restore decrypts and extracts back to original locations
+4. SSH permissions auto-fixed (600 private, 644 public, 700 dir)
+5. Existing `~/.ssh/` backed up to `~/.ssh.bak.*` before overwriting
+
+**Bitwarden backend:**
+1. SSH: stores private key in secure note's `.notes` field, public key as custom field
+2. Env: each `.env` file stored as its own secure note (named `env - <relpath>`)
+3. Updates existing items instead of creating duplicates
+4. Requires `bw login` first, then auto-unlocks vault as needed
+5. Free tier compatible (no attachments needed)
+
+#### New Machine Workflow
+
+```bash
+# Option A: Restore from SSD (offline)
 git clone git@github.com:EhsanulHaqueSiam/dev.git ~/Personal/dev
+cd ~/Personal/dev
+./secrets ssh restore              # decrypt SSH keys from SSD
+./secrets env restore              # decrypt .env files from SSD
 
-# 2. Restore SSH keys (age auto-installs if missing)
-cd ~/Personal/dev && ./ssh-restore
+# Option B: Restore from Bitwarden (cloud, no SSD needed)
+git clone git@github.com:EhsanulHaqueSiam/dev.git ~/Personal/dev
+cd ~/Personal/dev
+bw login                           # one-time Bitwarden login
+./secrets ssh restore --bw         # pull SSH keys from vault
+./secrets env restore --bw         # pull .env files from vault
 
-# 3. Now git, GitHub, and all servers work immediately
+# Either way, everything works immediately
 ssh -T git@github.com
 ```
 
-**Security:**
-- Uses age encryption (X25519 + ChaCha20-Poly1305 + scrypt for passphrase)
-- Private keys are never stored unencrypted on the exFAT SSD
-- age auto-installs if missing (yay/pacman)
-- Passphrase is the only way to decrypt — choose a strong one
+#### Security
+
+- **age**: X25519 + ChaCha20-Poly1305 + scrypt for passphrase. Private keys never stored unencrypted on exFAT.
+- **Bitwarden**: zero-knowledge E2EE vault. SSH keys stored as secure notes (encrypted at rest + in transit).
+- Both `age` and `bitwarden-cli` auto-install if missing.
+- Passphrase (age) or master password (Bitwarden) is the only way to decrypt.
 
 ### `./tui` — Interactive Terminal UI
 
@@ -228,8 +272,8 @@ Features:
 - **Deploy Configs** — deploy all, deploy unlinked only, select individual configs with symlink status (linked/not linked/conflict), view status panel
 - **Backup** — full backup, selective project backup, subfolder update, dry run, configure retention and workers
 - **Restore** — restore from latest/specific backup, pick projects or subfolders, dry run preview
-- **SSH Keys** — backup/restore SSH keys with age encryption, list backups, view local keys
-- **Status** — SSD info, backup list with sizes, system specs (CPU, rsync, gum), git status
+- **Secrets** — SSH keys and .env files with two backends (age SSD + Bitwarden cloud), list all secrets, view local SSH keys
+- **Status** — SSD info, backup list with sizes, secrets overview, Bitwarden status, system specs, git status
 
 ### `./make_runs_executable` — Helper
 
@@ -332,14 +376,14 @@ dev/
 ├── dev-env                # Config deployer (symlinks env/ to ~/)
 ├── backup                 # Backup projects to external SSD
 ├── restore                # Restore projects from external SSD
-├── ssh-backup             # Encrypt SSH keys to SSD (age)
-├── ssh-restore            # Decrypt SSH keys from SSD (age)
+├── secrets                # Secrets manager (SSH keys + .env files, age + Bitwarden)
 ├── tui                    # Interactive terminal UI (gum)
 ├── make_runs_executable   # chmod helper
 │
 ├── runs/                  # Individual tool installers
-│   ├── age                # Modern encryption tool (SSH key backup)
+│   ├── age                # Modern encryption tool (secrets backup)
 │   ├── atuin              # Shell history manager
+│   ├── bitwarden-cli      # Bitwarden CLI + jq (secrets backup)
 │   ├── bat                # Cat clone with syntax highlighting
 │   ├── bun                # JavaScript/TypeScript runtime
 │   ├── discord            # Communication
@@ -408,7 +452,9 @@ Top-level items are synced in parallel (4 workers by default) with `ionice -c 2 
 
 **`./restore`** syncs from the SSD back to `$HOME`. With no arguments, lists all available backups with sizes and contents. Uses safe merge (no `--delete`) so local files that don't exist in the backup are preserved. Requires typing `yes` to confirm. Also parallelized with the same worker pool.
 
-**`./tui`** provides an interactive gum-based interface for everything. Auto-installs gum if missing. Shows real-time status: which tools are installed (with versions), which configs are linked (with conflict detection), SSD info, and backup inventory.
+**`./secrets`** manages SSH keys and `.env` files with two backends. The **age backend** encrypts to the SSD (offline, passphrase-based). The **Bitwarden backend** stores in your vault (cloud, synced across devices). SSH keys are stored as secure notes with private key in `.notes` and public key as a custom field. `.env` files are each stored as individual secure notes. Both backends auto-install their dependencies if missing.
+
+**`./tui`** provides an interactive gum-based interface for everything. Auto-installs gum if missing. Shows real-time status: which tools are installed (with versions), which configs are linked (with conflict detection), SSD info, secrets overview, and Bitwarden status.
 
 **SSD layout:**
 ```
@@ -419,8 +465,10 @@ Top-level items are synced in parallel (4 workers by default) with `ionice -c 2 
 │   │   └── Personal/             # full snapshot
 │   └── 2026-02-15_18-00-00/
 │       └── Personal/             # full snapshot
-└── ssh-keys/
-    └── ssh-keys_hostname_2026-02-15_14-30-00.tar.age  # age-encrypted
+├── ssh-keys/
+│   └── ssh-keys_hostname_2026-02-15_14-30-00.tar.age  # age-encrypted SSH keys
+└── env-secrets/
+    └── env-secrets_2026-02-15_14-30-00.tar.age         # age-encrypted .env files
 ```
 
 **Expanding the system:**
@@ -453,13 +501,17 @@ Top-level items are synced in parallel (4 workers by default) with `ionice -c 2 
 | `./restore --from <ts> <target>` | Restore from specific backup |
 | `./restore --dry <target>` | Preview restore |
 | `./restore --jobs N <target>` | Override parallel workers (default: 4) |
-| `./ssh-backup` | Encrypt SSH keys to SSD |
-| `./ssh-backup --dry` | Preview SSH backup |
-| `./ssh-backup --list` | List SSH backups on SSD |
-| `./ssh-restore` | Restore SSH keys from latest backup |
-| `./ssh-restore --list` | List available SSH backups |
-| `./ssh-restore --from <file>` | Restore specific SSH backup |
-| `./ssh-restore --dry` | Preview SSH restore |
+| `./secrets ssh backup` | Encrypt SSH keys → SSD (age) |
+| `./secrets ssh backup --bw` | Store SSH keys → Bitwarden |
+| `./secrets ssh restore` | Decrypt SSH keys ← SSD (age) |
+| `./secrets ssh restore --bw` | Retrieve SSH keys ← Bitwarden |
+| `./secrets env backup` | Encrypt .env files → SSD (age) |
+| `./secrets env backup --bw` | Store .env files → Bitwarden |
+| `./secrets env restore` | Decrypt .env files ← SSD (age) |
+| `./secrets env restore --bw` | Retrieve .env files ← Bitwarden |
+| `./secrets env list` | List .env files in projects |
+| `./secrets --list` | List all secrets on SSD/Bitwarden |
+| `./secrets --dry <command>` | Preview any secrets operation |
 | `./tui` | Interactive terminal UI (all features) |
 
 ## Requirements
@@ -468,4 +520,5 @@ Top-level items are synced in parallel (4 workers by default) with `ionice -c 2 
 - **Dependencies:** `git`, `curl`, `bash`
 - **Required:** `yay` (AUR helper — pre-installed on Omarchy)
 - **Optional:** `gum` (auto-installed by `./tui` if missing)
-- **Optional:** `age` (auto-installed by `./ssh-backup` if missing)
+- **Optional:** `age` (auto-installed by `./secrets` if missing)
+- **Optional:** `bitwarden-cli` + `jq` (auto-installed by `./secrets --bw` if missing)
