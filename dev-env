@@ -130,13 +130,16 @@ if [ -d "$DEV_ENV/env/.local" ]; then
 fi
 
 # -----------------------------------------------------------------------
-# Home dotfiles — symlink individual files
+# Home dotfiles — symlink individual files (auto-detect)
 # -----------------------------------------------------------------------
 log "linking home dotfiles..."
 
-link_file "$DEV_ENV/env/.zshrc"    "$HOME/.zshrc"
-link_file "$DEV_ENV/env/.xprofile" "$HOME/.xprofile"
-link_file "$DEV_ENV/env/.profile"  "$HOME/.profile"
+for dotfile in "$DEV_ENV"/env/.*; do
+	[ -f "$dotfile" ] || continue
+	name="$(basename "$dotfile")"
+	[ "$name" = "." ] || [ "$name" = ".." ] && continue
+	link_file "$dotfile" "$HOME/$name"
+done
 
 # -----------------------------------------------------------------------
 # Self-install: make dev-env accessible from PATH

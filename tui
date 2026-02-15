@@ -144,16 +144,121 @@ main_menu() {
 # -----------------------------------------------------------------------
 # Install Tools
 # -----------------------------------------------------------------------
+tool_installed() {
+	local tool="$1"
+	case "$tool" in
+		atuin)        command -v atuin &>/dev/null ;;
+		bat)          command -v bat &>/dev/null ;;
+		bun)          command -v bun &>/dev/null ;;
+		discord)      command -v discord &>/dev/null || pacman -Qi discord &>/dev/null ;;
+		expressvpn)   command -v expressvpn &>/dev/null ;;
+		eza)          command -v eza &>/dev/null ;;
+		fnm)          command -v fnm &>/dev/null ;;
+		gcalcli)      command -v gcalcli &>/dev/null ;;
+		gemini)       command -v gemini &>/dev/null ;;
+		ghostty)      command -v ghostty &>/dev/null ;;
+		go)           command -v go &>/dev/null ;;
+		gum)          command -v gum &>/dev/null ;;
+		miniconda)    command -v conda &>/dev/null ;;
+		neovim)       command -v nvim &>/dev/null ;;
+		node)         command -v node &>/dev/null ;;
+		nvidiaDriver) pacman -Qi nvidia &>/dev/null 2>&1 ;;
+		ollama)       command -v ollama &>/dev/null ;;
+		omarchy)      [[ -d "$HOME/.omarchy" ]] 2>/dev/null ;;
+		python)       command -v python3 &>/dev/null ;;
+		rust)         command -v rustc &>/dev/null ;;
+		starship)     command -v starship &>/dev/null ;;
+		ticktick)     command -v ticktick &>/dev/null || flatpak list 2>/dev/null | grep -qi ticktick ;;
+		tldr)         command -v tldr &>/dev/null ;;
+		tmux)         command -v tmux &>/dev/null ;;
+		uv)           command -v uv &>/dev/null ;;
+		xh)           command -v xh &>/dev/null ;;
+		yazi)         command -v yazi &>/dev/null ;;
+		zsh)          command -v zsh &>/dev/null ;;
+		*)            command -v "$tool" &>/dev/null ;;
+	esac
+}
+
+tool_version() {
+	local tool="$1"
+	case "$tool" in
+		bun)       bun --version 2>/dev/null ;;
+		go)        go version 2>/dev/null | awk '{print $3}' | sed 's/go//' ;;
+		node)      node --version 2>/dev/null | sed 's/v//' ;;
+		nvim|neovim) nvim --version 2>/dev/null | head -1 | awk '{print $2}' | sed 's/v//' ;;
+		python)    python3 --version 2>/dev/null | awk '{print $2}' ;;
+		rust)      rustc --version 2>/dev/null | awk '{print $2}' ;;
+		tmux)      tmux -V 2>/dev/null | awk '{print $2}' ;;
+		zsh)       zsh --version 2>/dev/null | awk '{print $2}' ;;
+		gum)       gum --version 2>/dev/null | awk '{print $3}' ;;
+		bat)       bat --version 2>/dev/null | awk '{print $2}' ;;
+		eza)       eza --version 2>/dev/null | awk 'NR==2 {print $1}' | sed 's/v//' ;;
+		starship)  starship --version 2>/dev/null | head -1 | awk '{print $2}' ;;
+		uv)        uv --version 2>/dev/null | awk '{print $2}' ;;
+		xh)        xh --version 2>/dev/null | head -1 | awk '{print $2}' ;;
+		yazi)      yazi --version 2>/dev/null | awk '{print $2}' ;;
+		atuin)     atuin --version 2>/dev/null | awk '{print $2}' ;;
+		fnm)       fnm --version 2>/dev/null | sed 's/fnm //' ;;
+		ollama)    ollama --version 2>/dev/null | awk '{print $NF}' ;;
+		ghostty)   ghostty --version 2>/dev/null | head -1 | awk '{print $2}' ;;
+		*)         echo "" ;;
+	esac
+}
+
 menu_install() {
 	clear
 	header "Install Tools"
 
+	# Gather tool info
+	local tools=() installed_count=0 total_count=0
+	for s in "$DEV_ENV"/runs/*; do
+		[[ -x "$s" ]] || continue
+		tools+=("$(basename "$s")")
+		total_count=$(( total_count + 1 ))
+	done
+
+	if [[ ${#tools[@]} -eq 0 ]]; then
+		error "No tools found in runs/"
+		pause
+		return
+	fi
+
+	# Show tool status overview
+	local installed_list=() missing_list=()
+	for t in "${tools[@]}"; do
+		if tool_installed "$t"; then
+			local ver
+			ver=$(tool_version "$t")
+			installed_count=$(( installed_count + 1 ))
+			if [[ -n "$ver" ]]; then
+				installed_list+=("$t ($ver)")
+			else
+				installed_list+=("$t")
+			fi
+		else
+			missing_list+=("$t")
+		fi
+	done
+
+	gum style --foreground 240 "  Tools: $installed_count/$total_count installed"
+	echo ""
+
+	if [[ ${#missing_list[@]} -gt 0 ]]; then
+		gum style --foreground 214 "  Not installed:"
+		for t in "${missing_list[@]}"; do
+			gum style --foreground 214 "    - $t"
+		done
+		echo ""
+	fi
+
 	local choice
 	choice=$(gum choose \
 		--header "Select mode:" \
-		--height 6 \
+		--height 8 \
 		"Install All" \
+		"Install Missing Only" \
 		"Select Tools" \
+		"View Installed" \
 		"Dry Run (preview)" \
 		"Back" \
 	) || return 0
@@ -161,11 +266,20 @@ menu_install() {
 	case "$choice" in
 		"Install All")
 			echo ""
-			"$DEV_ENV/run"
+			if gum confirm "Install/update all $total_count tools?"; then
+				echo ""
+				"$DEV_ENV/run"
+			fi
 			pause
 			;;
+		"Install Missing Only")
+			do_install_missing "${missing_list[@]}"
+			;;
 		"Select Tools")
-			select_and_install
+			select_and_install "${tools[@]}"
+			;;
+		"View Installed")
+			do_view_installed "${installed_list[@]}"
 			;;
 		"Dry Run (preview)")
 			echo ""
@@ -176,43 +290,26 @@ menu_install() {
 	esac
 }
 
-select_and_install() {
-	# Get list of available tools
-	local tools=()
-	for s in "$DEV_ENV"/runs/*; do
-		[[ -x "$s" ]] && tools+=("$(basename "$s")")
-	done
+do_install_missing() {
+	local missing=("$@")
 
-	if [[ ${#tools[@]} -eq 0 ]]; then
-		error "No tools found in runs/"
+	if [[ ${#missing[@]} -eq 0 ]]; then
+		echo ""
+		success "All tools already installed!"
 		pause
 		return
 	fi
 
 	echo ""
-	local selected
-	selected=$(printf '%s\n' "${tools[@]}" | gum choose \
-		--no-limit \
-		--header "Select tools to install (space to toggle, enter to confirm):" \
-		--height 20 \
-	) || return 0
-
-	if [[ -z "$selected" ]]; then
-		warn "Nothing selected"
-		pause
-		return
-	fi
-
-	echo ""
-	gum style --foreground 78 "Selected:"
-	echo "$selected" | while read -r t; do
+	gum style --foreground 214 "Missing tools to install:"
+	for t in "${missing[@]}"; do
 		info "  $t"
 	done
 	echo ""
 
-	if gum confirm "Install selected tools?"; then
+	if gum confirm "Install ${#missing[@]} missing tool(s)?"; then
 		echo ""
-		echo "$selected" | while read -r tool; do
+		for tool in "${missing[@]}"; do
 			gum style --foreground 39 --bold "--- $tool ---"
 			"$DEV_ENV/run" "$tool" || true
 			echo ""
@@ -224,18 +321,198 @@ select_and_install() {
 	pause
 }
 
+select_and_install() {
+	local tools=("$@")
+
+	# Build labels with installed status
+	local labels=()
+	for t in "${tools[@]}"; do
+		if tool_installed "$t"; then
+			local ver
+			ver=$(tool_version "$t")
+			if [[ -n "$ver" ]]; then
+				labels+=("$t  ✓ $ver")
+			else
+				labels+=("$t  ✓")
+			fi
+		else
+			labels+=("$t  ✗ not installed")
+		fi
+	done
+
+	echo ""
+	local selected
+	selected=$(printf '%s\n' "${labels[@]}" | gum choose \
+		--no-limit \
+		--header "Select tools (space to toggle, enter to confirm):" \
+		--height 20 \
+	) || return 0
+
+	if [[ -z "$selected" ]]; then
+		warn "Nothing selected"
+		pause
+		return
+	fi
+
+	# Extract tool names (first word before spaces)
+	local tool_names=()
+	while read -r line; do
+		tool_names+=("$(echo "$line" | awk '{print $1}')")
+	done <<< "$selected"
+
+	echo ""
+	gum style --foreground 78 "Selected:"
+	for t in "${tool_names[@]}"; do
+		info "  $t"
+	done
+	echo ""
+
+	if gum confirm "Install ${#tool_names[@]} selected tool(s)?"; then
+		echo ""
+		for tool in "${tool_names[@]}"; do
+			gum style --foreground 39 --bold "--- $tool ---"
+			"$DEV_ENV/run" "$tool" || true
+			echo ""
+		done
+		success "Done!"
+	else
+		warn "Cancelled"
+	fi
+	pause
+}
+
+do_view_installed() {
+	local installed=("$@")
+
+	clear
+	header "Installed Tools"
+
+	if [[ ${#installed[@]} -eq 0 ]]; then
+		warn "No tools installed"
+		pause
+		return
+	fi
+
+	gum style --foreground 240 "  ${#installed[@]} tools installed:"
+	echo ""
+	for t in "${installed[@]}"; do
+		success "✓ $t"
+	done
+	pause
+}
+
 # -----------------------------------------------------------------------
 # Deploy Configs
 # -----------------------------------------------------------------------
+config_status() {
+	# Returns: "linked" | "not_linked" | "conflict" | "missing"
+	local src="$1" dest="$2"
+	if [[ ! -e "$src" && ! -d "$src" ]]; then
+		echo "missing"
+	elif [[ -L "$dest" ]] && [[ "$(readlink -f "$dest")" == "$(readlink -f "$src")" ]]; then
+		echo "linked"
+	elif [[ -e "$dest" || -L "$dest" ]]; then
+		echo "conflict"
+	else
+		echo "not_linked"
+	fi
+}
+
+gather_configs() {
+	# Outputs lines: type|name|src|dest|status
+	local xdg="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+	# .config/ directories
+	for dir in "$DEV_ENV"/env/.config/*/; do
+		[[ -d "$dir" ]] || continue
+		local name
+		name=$(basename "$dir")
+		local src="$DEV_ENV/env/.config/$name"
+		local dest="$xdg/$name"
+		local st
+		st=$(config_status "$src" "$dest")
+		echo "config|$name|$src|$dest|$st"
+	done
+
+	# .config/ standalone files (e.g. starship.toml)
+	for file in "$DEV_ENV"/env/.config/*; do
+		[[ -f "$file" ]] || continue
+		local name
+		name=$(basename "$file")
+		local src="$file"
+		local dest="$xdg/$name"
+		local st
+		st=$(config_status "$src" "$dest")
+		echo "config|$name|$src|$dest|$st"
+	done
+
+	# .local/ files
+	if [[ -d "$DEV_ENV/env/.local" ]]; then
+		for dir in "$DEV_ENV"/env/.local/*/; do
+			[[ -d "$dir" ]] || continue
+			local dirname
+			dirname=$(basename "$dir")
+			for item in "$dir"*; do
+				[[ -e "$item" ]] || continue
+				local fname
+				fname=$(basename "$item")
+				local src="$item"
+				local dest="$HOME/.local/$dirname/$fname"
+				local st
+				st=$(config_status "$src" "$dest")
+				echo "local|.local/$dirname/$fname|$src|$dest|$st"
+			done
+		done
+	fi
+
+	# Home dotfiles (auto-detect any dotfile in env/)
+	for file in "$DEV_ENV"/env/.*; do
+		[[ -f "$file" ]] || continue
+		local name
+		name=$(basename "$file")
+		[[ "$name" == "." || "$name" == ".." ]] && continue
+		local src="$file"
+		local dest="$HOME/$name"
+		local st
+		st=$(config_status "$src" "$dest")
+		echo "dotfile|$name|$src|$dest|$st"
+	done
+}
+
 menu_deploy() {
 	clear
 	header "Deploy Configs"
 
+	# Gather config status
+	local configs=()
+	local linked_count=0 not_linked_count=0 conflict_count=0 total_count=0
+	while IFS='|' read -r type name src dest status; do
+		configs+=("$type|$name|$src|$dest|$status")
+		total_count=$(( total_count + 1 ))
+		case "$status" in
+			linked)     linked_count=$(( linked_count + 1 )) ;;
+			not_linked) not_linked_count=$(( not_linked_count + 1 )) ;;
+			conflict)   conflict_count=$(( conflict_count + 1 )) ;;
+		esac
+	done < <(gather_configs)
+
+	gum style --foreground 240 "  Configs: $linked_count/$total_count linked"
+	if [[ $not_linked_count -gt 0 ]]; then
+		gum style --foreground 214 "  Not linked: $not_linked_count"
+	fi
+	if [[ $conflict_count -gt 0 ]]; then
+		gum style --foreground 196 "  Conflicts: $conflict_count (local file exists, not symlinked)"
+	fi
+	echo ""
+
 	local choice
 	choice=$(gum choose \
 		--header "Select mode:" \
-		--height 5 \
+		--height 8 \
 		"Deploy All Configs" \
+		"Deploy Unlinked Only" \
+		"Select Configs" \
+		"View Status" \
 		"Dry Run (preview)" \
 		"Back" \
 	) || return 0
@@ -243,8 +520,20 @@ menu_deploy() {
 	case "$choice" in
 		"Deploy All Configs")
 			echo ""
-			"$DEV_ENV/dev-env"
+			if gum confirm "Deploy all $total_count configs?"; then
+				echo ""
+				"$DEV_ENV/dev-env"
+			fi
 			pause
+			;;
+		"Deploy Unlinked Only")
+			do_deploy_unlinked "${configs[@]}"
+			;;
+		"Select Configs")
+			do_deploy_select "${configs[@]}"
+			;;
+		"View Status")
+			do_view_config_status "${configs[@]}"
 			;;
 		"Dry Run (preview)")
 			echo ""
@@ -253,6 +542,199 @@ menu_deploy() {
 			;;
 		"Back") return 0 ;;
 	esac
+}
+
+deploy_single_config() {
+	local type="$1" name="$2" src="$3" dest="$4"
+	local xdg="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+	case "$type" in
+		config)
+			# Symlink directory or standalone file in .config/
+			if [[ -e "$dest" || -L "$dest" ]]; then
+				if [[ ! -L "$dest" ]]; then
+					local backup_dir="$HOME/.config-backup/$(date +%Y%m%d-%H%M%S)"
+					mkdir -p "$backup_dir"
+					cp -r "$dest" "$backup_dir/$(basename "$dest")"
+					info "  backed up: $dest"
+				fi
+				rm -rf "$dest"
+			fi
+			mkdir -p "$(dirname "$dest")"
+			ln -sf "$src" "$dest"
+			success "  linked: $name -> $dest"
+			;;
+		local)
+			# Symlink individual file
+			mkdir -p "$(dirname "$dest")"
+			if [[ -e "$dest" || -L "$dest" ]]; then
+				if [[ ! -L "$dest" ]]; then
+					local backup_dir="$HOME/.config-backup/$(date +%Y%m%d-%H%M%S)"
+					mkdir -p "$backup_dir"
+					cp "$dest" "$backup_dir/$(basename "$dest")"
+					info "  backed up: $dest"
+				fi
+				rm -f "$dest"
+			fi
+			ln -sf "$src" "$dest"
+			success "  linked: $name -> $dest"
+			;;
+		dotfile)
+			# Symlink home dotfile
+			if [[ -e "$dest" || -L "$dest" ]]; then
+				if [[ ! -L "$dest" ]]; then
+					local backup_dir="$HOME/.config-backup/$(date +%Y%m%d-%H%M%S)"
+					mkdir -p "$backup_dir"
+					cp "$dest" "$backup_dir/$(basename "$dest")"
+					info "  backed up: $dest"
+				fi
+				rm -f "$dest"
+			fi
+			ln -sf "$src" "$dest"
+			success "  linked: $name -> $dest"
+			;;
+	esac
+}
+
+do_deploy_unlinked() {
+	local configs=("$@")
+	local unlinked=()
+
+	for entry in "${configs[@]}"; do
+		IFS='|' read -r type name src dest status <<< "$entry"
+		if [[ "$status" == "not_linked" || "$status" == "conflict" ]]; then
+			unlinked+=("$entry")
+		fi
+	done
+
+	if [[ ${#unlinked[@]} -eq 0 ]]; then
+		echo ""
+		success "All configs already linked!"
+		pause
+		return
+	fi
+
+	echo ""
+	gum style --foreground 214 "Configs to deploy:"
+	for entry in "${unlinked[@]}"; do
+		IFS='|' read -r type name src dest status <<< "$entry"
+		if [[ "$status" == "conflict" ]]; then
+			gum style --foreground 196 "  $name  (will backup existing)"
+		else
+			info "  $name"
+		fi
+	done
+	echo ""
+
+	if gum confirm "Deploy ${#unlinked[@]} config(s)?"; then
+		echo ""
+		for entry in "${unlinked[@]}"; do
+			IFS='|' read -r type name src dest status <<< "$entry"
+			deploy_single_config "$type" "$name" "$src" "$dest"
+		done
+		echo ""
+		success "Done!"
+	else
+		warn "Cancelled"
+	fi
+	pause
+}
+
+do_deploy_select() {
+	local configs=("$@")
+
+	# Build labels with status
+	local labels=()
+	for entry in "${configs[@]}"; do
+		IFS='|' read -r type name src dest status <<< "$entry"
+		case "$status" in
+			linked)     labels+=("$name  ✓ linked") ;;
+			not_linked) labels+=("$name  ✗ not linked") ;;
+			conflict)   labels+=("$name  ⚠ conflict") ;;
+			missing)    labels+=("$name  ? missing source") ;;
+		esac
+	done
+
+	echo ""
+	local selected
+	selected=$(printf '%s\n' "${labels[@]}" | gum choose \
+		--no-limit \
+		--header "Select configs (space to toggle, enter to confirm):" \
+		--height 20 \
+	) || return 0
+
+	if [[ -z "$selected" ]]; then
+		warn "Nothing selected"
+		pause
+		return
+	fi
+
+	# Match selected labels back to config entries
+	local to_deploy=()
+	while read -r line; do
+		local sel_name
+		sel_name=$(echo "$line" | awk '{print $1}')
+		for entry in "${configs[@]}"; do
+			IFS='|' read -r type name src dest status <<< "$entry"
+			if [[ "$name" == "$sel_name" ]]; then
+				to_deploy+=("$entry")
+				break
+			fi
+		done
+	done <<< "$selected"
+
+	echo ""
+	gum style --foreground 78 "Selected:"
+	for entry in "${to_deploy[@]}"; do
+		IFS='|' read -r type name src dest status <<< "$entry"
+		info "  $name"
+	done
+	echo ""
+
+	if gum confirm "Deploy ${#to_deploy[@]} config(s)?"; then
+		echo ""
+		for entry in "${to_deploy[@]}"; do
+			IFS='|' read -r type name src dest status <<< "$entry"
+			deploy_single_config "$type" "$name" "$src" "$dest"
+		done
+		echo ""
+		success "Done!"
+	else
+		warn "Cancelled"
+	fi
+	pause
+}
+
+do_view_config_status() {
+	local configs=("$@")
+
+	clear
+	header "Config Status"
+
+	local prev_type=""
+	for entry in "${configs[@]}"; do
+		IFS='|' read -r type name src dest status <<< "$entry"
+
+		# Section headers
+		if [[ "$type" != "$prev_type" ]]; then
+			echo ""
+			case "$type" in
+				config)  gum style --foreground 212 --bold "  .config/ directories" ;;
+				local)   gum style --foreground 212 --bold "  .local/ files" ;;
+				dotfile) gum style --foreground 212 --bold "  Home dotfiles" ;;
+			esac
+			prev_type="$type"
+		fi
+
+		case "$status" in
+			linked)     success "  ✓ $name" ;;
+			not_linked) warn "  ✗ $name  (not deployed)" ;;
+			conflict)   error "  ⚠ $name  (local file exists, not symlinked)" ;;
+			missing)    gum style --foreground 240 "  ? $name  (source missing)" ;;
+		esac
+	done
+
+	pause
 }
 
 # -----------------------------------------------------------------------
