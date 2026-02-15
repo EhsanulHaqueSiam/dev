@@ -46,19 +46,20 @@ EXCLUDES=(
 )
 
 # exFAT-optimized rsync flags:
-#   -r            recursive
-#   --times       preserve modification times
+#   -r              recursive
+#   --times         preserve modification times
 #   --modify-window=1   exFAT timestamp tolerance (2-second granularity)
-#   --no-links    skip symlinks (exFAT can't store them)
-#   --no-perms    exFAT ignores Unix permissions
-#   --no-owner    exFAT ignores ownership
-#   --no-group    exFAT ignores group
-#   --whole-file  skip delta algorithm (local copy, no benefit)
-#   --inplace     write directly, no temp files (faster on exFAT)
+#   --no-links      skip symlinks (exFAT can't store them)
+#   --no-perms      exFAT ignores Unix permissions
+#   --no-owner      exFAT ignores ownership
+#   --no-group      exFAT ignores group
+#   --omit-dir-times  skip directory timestamps (exFAT dir mtime unreliable)
+#   --whole-file    skip delta algorithm (local copy, no benefit)
+#   --inplace       write directly, no temp files (faster on exFAT)
 RSYNC_FLAGS=(
 	-r --times --modify-window=1
 	--no-links --no-perms --no-owner --no-group
-	--whole-file --inplace
+	--omit-dir-times --whole-file --inplace
 )
 
 # Colors
