@@ -35,7 +35,13 @@ First run shows a setup wizard for your SSD path and projects directory. After t
 
 These are the commands you'll use most often. Every command supports `--dry` to preview without making changes and `--help` for detailed usage.
 
-After the first `./dev-env` deploy, the `dev` command is available globally with tab completion:
+After the first `./dev-env deploy`, add this one line to your `.bashrc` or `.zshrc` to enable the `dev` command with tab completion:
+
+```bash
+[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/init.sh" ] && . "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/init.sh"
+```
+
+Then open a new shell:
 
 ```bash
 dev run                    # install everything + deploy configs
@@ -47,6 +53,8 @@ dev help                   # show all commands
 ```
 
 Tab completion works for all subcommands: `dev <TAB>`, `dev secrets <TAB>`, `dev secrets ssh <TAB>`.
+
+> **Note:** If you deploy the repo's `.bashrc`/`.zshrc` (via `./dev-env`), this line is already included. The one-liner is for people who keep their own shell config.
 
 You can also run scripts directly from the repo:
 
@@ -366,10 +374,11 @@ dev/
     ├── .config/
     │   ├── atuin/             # Shell history config
     │   ├── dev-env/
-    │   │   ├── shell-init.sh       # Tool init (Cargo, Go, Bun, fnm, etc.)
-    │   │   ├── shell-functions.sh  # Shell functions (bwu, etc.)
-    │   │   ├── completions.bash   # Bash tab-completions for dev command
-    │   │   └── completions.zsh    # Zsh tab-completions for dev command
+    │   │   ├── init.sh              # One-line shell setup (source this)
+    │   │   ├── shell-init.sh        # Tool init (Cargo, Go, Bun, fnm, etc.)
+    │   │   ├── shell-functions.sh   # Shell functions (bwu, etc.)
+    │   │   ├── completions.bash     # Bash tab-completions for dev command
+    │   │   └── completions.zsh      # Zsh tab-completions for dev command
     │   ├── ghostty/           # Terminal (tokyo-night, FiraCode)
     │   ├── mpv/               # Media player
     │   ├── nvim/              # Neovim (LazyVim, 80+ plugins, 18 LSPs)
@@ -410,7 +419,7 @@ Local (~/.ssh, .env)  --age encrypt-->  SSD ($SSD/ssh-keys/, $SSD/env-secrets/)
 Local (~/.ssh, .env)  --bw store-->     Bitwarden vault (secure notes)
 ```
 
-**Shell init** -- `.zshrc` and `.bashrc` source `~/.config/dev-env/shell-init.sh` which initializes: Cargo, Go, Bun, fnm, Atuin, Starship, Zoxide, Conda, FZF, uv, and CUDA. Each tool is guarded -- only initialized if installed.
+**Shell init** -- A single `~/.config/dev-env/init.sh` handles everything: adds the `dev` command to PATH, loads tool initialization (Cargo, Go, Bun, fnm, Atuin, Starship, Zoxide, Conda, FZF, uv, CUDA), shell functions, and tab completions. Each tool is guarded -- only initialized if installed. Users with their own shell config just source this one file.
 
 **SSD layout:**
 
