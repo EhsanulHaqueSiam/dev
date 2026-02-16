@@ -480,7 +480,6 @@ menu_skills() {
 			"Remove Skills" \
 			"View Installed" \
 			"Search Library" \
-			"Browse Library" \
 			"Discover New Skills" \
 			"Fetch / Update Library" \
 			"Back" \
@@ -491,7 +490,6 @@ menu_skills() {
 			"Remove Skills")     do_skills_remove ;;
 			"View Installed")    do_skills_installed ;;
 			"Search Library")    do_skills_search ;;
-			"Browse Library")    do_skills_browse ;;
 			"Discover New Skills")
 				info "Opening awesome-agent-skills catalog..."
 				xdg-open "https://github.com/VoltAgent/awesome-agent-skills" 2>/dev/null &
@@ -833,61 +831,6 @@ do_skills_search() {
 	pause
 }
 
-do_skills_browse() {
-	local skills_lib="$DEV_ENV/skills-lib"
-	if [[ ! -d "$skills_lib" ]]; then
-		error "Library not fetched. Run fetch first."
-		pause
-		return
-	fi
-
-	# Group skills by provider
-	declare -A groups
-	local total=0
-	for d in "$skills_lib"/*/; do
-		[[ -d "$d" && -f "$d/SKILL.md" ]] || continue
-		local name provider
-		name="$(basename "$d")"
-		provider="$(_skill_provider "$d")"
-		groups["$provider"]+="$name"$'\n'
-		((total++)) || true
-	done
-
-	# Build formatted output for pager
-	local output=""
-	output+="$(printf '  ╭─────────────────────────────────────────────────────────────╮\n')"
-	output+="$(printf '  │  %-59s│\n' "Claude Code Skills Library — ${total} skills")"
-	output+="$(printf '  ╰─────────────────────────────────────────────────────────────╯\n')"
-	output+=$'\n'
-
-	local sorted_providers
-	sorted_providers=$(printf '%s\n' "${!groups[@]}" | sort)
-	while IFS= read -r provider; do
-		[[ -z "$provider" ]] && continue
-		local pcount=0
-		while IFS= read -r n; do
-			[[ -z "$n" ]] && continue
-			((pcount++)) || true
-		done <<< "${groups[$provider]}"
-		output+="$(printf '  ┌ %s (%d)\n' "$provider" "$pcount")"
-		output+="$(printf '  │\n')"
-		while IFS= read -r name; do
-			[[ -z "$name" ]] && continue
-			local desc
-			desc="$(_skill_description "$skills_lib/$name")"
-			[[ ${#desc} -gt 52 ]] && desc="${desc:0:49}..."
-			if [[ -n "$desc" ]]; then
-				output+="$(printf '  │  %-32s %s\n' "$name" "$desc")"
-			else
-				output+="$(printf '  │  %s\n' "$name")"
-			fi
-		done <<< "${groups[$provider]}"
-		output+="$(printf '  │\n')"
-		output+=$'\n'
-	done <<< "$sorted_providers"
-
-	echo "$output" | gum pager --border-foreground 240
-}
 
 # -----------------------------------------------------------------------
 # Deploy Configs
