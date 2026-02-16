@@ -6,7 +6,7 @@ _dev_completions() {
 	_init_completion || return
 
 	# Top-level commands
-	local commands="run env backup restore secrets tui help"
+	local commands="run env backup restore secrets skills tui help"
 
 	case "$cword" in
 		1)
@@ -16,6 +16,15 @@ _dev_completions() {
 	esac
 
 	local cmd="${words[1]}"
+
+	# Resolve DEV_ENV for dynamic completions
+	local _config="${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/config"
+	local _dev_env=""
+	if [[ -f "$_config" ]]; then
+		_dev_env="$(grep '^DEV_ENV_PATH=' "$_config" 2>/dev/null | head -1 | cut -d= -f2-)"
+		_dev_env="${_dev_env#\"}"
+		_dev_env="${_dev_env%\"}"
+	fi
 
 	case "$cmd" in
 		env)
@@ -53,18 +62,27 @@ _dev_completions() {
 			;;
 		run)
 			# Dynamic: list runs/ scripts + flags
-			local _config="${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/config"
-			local _dev_env=""
-			if [[ -f "$_config" ]]; then
-				_dev_env="$(grep '^DEV_ENV_PATH=' "$_config" 2>/dev/null | head -1 | cut -d= -f2-)"
-				_dev_env="${_dev_env#\"}"
-				_dev_env="${_dev_env%\"}"
-			fi
 			local run_scripts=""
 			if [[ -n "$_dev_env" && -d "$_dev_env/runs" ]]; then
 				run_scripts="$(command ls "$_dev_env/runs" 2>/dev/null)"
 			fi
 			COMPREPLY=($(compgen -W "$run_scripts --dry --env --help" -- "$cur"))
+			;;
+		skills)
+			if [[ $cword -eq 2 ]]; then
+				COMPREPLY=($(compgen -W "fetch list search install remove installed update --help" -- "$cur"))
+			else
+				local subcmd="${words[2]}"
+				case "$subcmd" in
+					install|remove)
+						local _skills=""
+						if [[ -n "$_dev_env" && -d "$_dev_env/skills-lib" ]]; then
+							_skills="$(command ls "$_dev_env/skills-lib" 2>/dev/null)"
+						fi
+						COMPREPLY=($(compgen -W "$_skills" -- "$cur"))
+						;;
+				esac
+			fi
 			;;
 		tui)
 			COMPREPLY=($(compgen -W "--run --list --help" -- "$cur"))

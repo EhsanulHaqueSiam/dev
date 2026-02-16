@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Manage Claude Code skills — list, search, install, remove
+# Usage: dev skills <command> [args...]
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LIBRARY="$SCRIPT_DIR/skills-lib"
+
+show_help() {
+	cat <<-'EOF'
+	Usage: dev skills <command> [args...]
+
+	Commands:
+	  fetch                        Download all skills from GitHub
+	  update                       Re-fetch all skills (alias for fetch)
+	  list                         List available skills
+	  search <term>                Filter skills by keyword
+	  install <name> [<name>...]   Install skill(s) into current project
+	  remove <name>                Remove skill from current project
+	  installed                    Show skills in current project
+
+	Skills are installed to .claude/skills/<name>/ in the current directory.
+	EOF
+}
+
+# Read description from SKILL.md frontmatter (description: line)
+get_description() {
+	local skill_md="$1/SKILL.md"
+	[[ -f "$skill_md" ]] || return 0
+	sed -n '/^---$/,/^---$/{/^description:/{ s/^description:[[:space:]]*//; s/^["'"'"']//; s/["'"'"']$//; p; q; }}' "$skill_md"
+}
+
+cmd_fetch() {
+	exec "$SCRIPT_DIR/skills-fetch" "$@"
+}
+
+cmd_list() {
+	if [[ ! -d "$LIBRARY" ]]; then
+		echo "No skills found. Run 'dev skills fetch' first."
+		exit 1
+	fi
+	local count=0
+	for dir in "$LIBRARY"/*/; do
+		[[ -d "$dir" ]] || continue
+		local name
+		name="$(basename "$dir")"
+		local desc
+		desc="$(get_description "$dir")"
+		if [[ -n "$desc" ]]; then
+			printf "  %-40s %s\n" "$name" "$desc"
+		else
+			printf "  %s\n" "$name"
+		fi
+		((count++)) || true
+	done
+	printf "\n%d skills available\n" "$count"
+}
+
+cmd_search() {
+	local term="$1"
+	if [[ ! -d "$LIBRARY" ]]; then
+		echo "No skills found. Run 'dev skills fetch' first."
+		exit 1
+	fi
+	local found=0
+	for dir in "$LIBRARY"/*/; do
+		[[ -d "$dir" ]] || continue
+		local name
+		name="$(basename "$dir")"
+		local desc
+		desc="$(get_description "$dir")"
+		local haystack="$name $desc"
+		if echo "$haystack" | grep -qFi "$term"; then
+			if [[ -n "$desc" ]]; then
+				printf "  %-40s %s\n" "$name" "$desc"
+			else
+				printf "  %s\n" "$name"
+			fi
+			((found++)) || true
+		fi
+	done
+	if [[ "$found" -eq 0 ]]; then
+		echo "No skills matching '$term'"
+	else
+		printf "\n%d match(es)\n" "$found"
+	fi
+}
+
+cmd_install() {
+	if [[ $# -eq 0 ]]; then
+		echo "Usage: dev skills install <name> [<name>...]"
+		exit 1
+	fi
+	local target=".claude/skills"
+	for name in "$@"; do
+		local src="$LIBRARY/$name"
+		if [[ ! -d "$src" || ! -f "$src/SKILL.md" ]]; then
+			echo "✗ skill '$name' not found in library"
+			continue
+		fi
+		mkdir -p "$target/$name"
+		cp -r "$src"/. "$target/$name/"
+		echo "✓ installed $name → $target/$name/"
+	done
+}
+
+cmd_remove() {
+	if [[ $# -eq 0 ]]; then
+		echo "Usage: dev skills remove <name>"
+		exit 1
+	fi
+	local name="$1"
+	local target=".claude/skills/$name"
+	if [[ ! -d "$target" ]]; then
+		echo "✗ skill '$name' not installed in this project"
+		exit 1
+	fi
+	rm -rf "$target"
+	echo "✓ removed $name"
+}
+
+cmd_installed() {
+	local target=".claude/skills"
+	if [[ ! -d "$target" ]]; then
+		echo "No skills installed in this project."
+		return
+	fi
+	local count=0
+	for dir in "$target"/*/; do
+		[[ -d "$dir" ]] || continue
+		local name
+		name="$(basename "$dir")"
+		local desc
+		desc="$(get_description "$dir")"
+		if [[ -n "$desc" ]]; then
+			printf "  %-40s %s\n" "$name" "$desc"
+		else
+			printf "  %s\n" "$name"
+		fi
+		((count++)) || true
+	done
+	if [[ "$count" -eq 0 ]]; then
+		echo "No skills installed in this project."
+	else
+		printf "\n%d skill(s) installed\n" "$count"
+	fi
+}
+
+case "${1:---help}" in
+	fetch|update) shift; cmd_fetch "$@" ;;
+	list)         cmd_list ;;
+	search)
+		shift
+		if [[ $# -eq 0 ]]; then
+			echo "Usage: dev skills search <term>"
+			exit 1
+		fi
+		cmd_search "$1"
+		;;
+	install)      shift; cmd_install "$@" ;;
+	remove)       shift; cmd_remove "$@" ;;
+	installed)    cmd_installed ;;
+	-h|--help)    show_help ;;
+	*)
+		echo "Unknown command: $1"
+		echo "Run 'dev skills --help' for usage."
+		exit 1
+		;;
+esac

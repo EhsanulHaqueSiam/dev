@@ -30,6 +30,7 @@ show_help() {
 	  backup [args]     Backup projects to external SSD
 	  restore [args]    Restore projects from SSD backup
 	  secrets [args]    Manage secrets (SSH keys, .env files, Claude config)
+	  skills [args]     Manage Claude Code skills (install/list/search)
 	  tui [args]        Interactive terminal UI
 	  help              Show this help message
 
@@ -50,6 +51,7 @@ case "${1:-help}" in
 	backup)   shift; exec "$DEV_ENV/backup" "$@" ;;
 	restore)  shift; exec "$DEV_ENV/restore" "$@" ;;
 	secrets)  shift; exec "$DEV_ENV/secrets" "$@" ;;
+	skills)   shift; exec "$DEV_ENV/skills" "$@" ;;
 	tui)      shift; exec "$DEV_ENV/tui" "$@" ;;
 	help|-h|--help) show_help ;;
 	*)

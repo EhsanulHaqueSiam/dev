@@ -6,7 +6,7 @@ _dev_completions() {
 	local curcontext="$curcontext" state
 
 	# Top-level commands
-	commands=(run env backup restore secrets tui help)
+	commands=(run env backup restore secrets skills tui help)
 
 	if (( CURRENT == 2 )); then
 		compadd -a commands
@@ -14,6 +14,15 @@ _dev_completions() {
 	fi
 
 	local cmd="${words[2]}"
+
+	# Resolve DEV_ENV for dynamic completions
+	local _config="${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/config"
+	local _dev_env=""
+	if [[ -f "$_config" ]]; then
+		_dev_env="$(grep '^DEV_ENV_PATH=' "$_config" 2>/dev/null | head -1 | cut -d= -f2-)"
+		_dev_env="${_dev_env#\"}"
+		_dev_env="${_dev_env%\"}"
+	fi
 
 	case "$cmd" in
 		env)
@@ -51,18 +60,27 @@ _dev_completions() {
 			;;
 		run)
 			# Dynamic: list runs/ scripts + flags
-			local _config="${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/config"
-			local _dev_env=""
-			if [[ -f "$_config" ]]; then
-				_dev_env="$(grep '^DEV_ENV_PATH=' "$_config" 2>/dev/null | head -1 | cut -d= -f2-)"
-				_dev_env="${_dev_env#\"}"
-				_dev_env="${_dev_env%\"}"
-			fi
 			local -a run_scripts
 			if [[ -n "$_dev_env" && -d "$_dev_env/runs" ]]; then
 				run_scripts=(${(f)"$(command ls "$_dev_env/runs" 2>/dev/null)"})
 			fi
 			compadd "${run_scripts[@]}" --dry --env --help
+			;;
+		skills)
+			if (( CURRENT == 3 )); then
+				compadd fetch list search install remove installed update --help
+			else
+				local subcmd="${words[3]}"
+				case "$subcmd" in
+					install|remove)
+						local -a _skills
+						if [[ -n "$_dev_env" && -d "$_dev_env/skills-lib" ]]; then
+							_skills=(${(f)"$(command ls "$_dev_env/skills-lib" 2>/dev/null)"})
+						fi
+						compadd "${_skills[@]}"
+						;;
+				esac
+			fi
 			;;
 		tui)
 			compadd -- --run --list --help

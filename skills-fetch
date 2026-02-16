@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Download all curated Claude Code skills into $DEV_ENV/skills-lib/
+# Usage: ./skills-fetch
+# Idempotent — safe to re-run, always overwrites with fresh copies.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SKILLS_DIR="$SCRIPT_DIR/skills-lib"
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+total=0
+skipped=0
+
+# ── helpers ──────────────────────────────────────────────────────────
+
+clone_repo() {
+	local repo="$1" branch="${2:-main}"
+	local dest="$TMP_DIR/$repo"
+	if [[ -d "$dest" ]]; then return; fi
+	mkdir -p "$(dirname "$dest")"
+	printf "  cloning %s (%s)…\n" "$repo" "$branch"
+	git clone --depth 1 --branch "$branch" --quiet \
+		"https://github.com/$repo.git" "$dest" 2>/dev/null || {
+		printf "  ⚠ failed to clone %s — skipping\n" "$repo"
+		return 1
+	}
+}
+
+# Copy a single skill directory into $SKILLS_DIR/<name>/
+# install_skill <source-dir> <name> [priority]
+#   priority=curated (default): always install
+#   priority=wildcard: skip if name already exists
+install_skill() {
+	local src="$1" name="$2" priority="${3:-curated}"
+	if [[ ! -f "$src/SKILL.md" ]]; then
+		((skipped++)) || true
+		return
+	fi
+	if [[ "$priority" == "wildcard" && -d "$SKILLS_DIR/$name" ]]; then
+		return
+	fi
+	rm -rf "$SKILLS_DIR/$name"
+	cp -r "$src" "$SKILLS_DIR/$name"
+	((total++)) || true
+}
+
+# For repos where we grab specific named skills from a base path
+install_named() {
+	local repo="$1" branch="$2" base="$3"
+	shift 3
+	clone_repo "$repo" "$branch" || return 0
+	local repo_dir="$TMP_DIR/$repo"
+	for entry in "$@"; do
+		local src_name="${entry%%→*}"
+		local dst_name="${entry##*→}"
+		# If no → found, src_name == dst_name
+		if [[ "$src_name" == "$dst_name" ]]; then
+			dst_name="$src_name"
+		fi
+		install_skill "$repo_dir/$base$src_name" "$dst_name"
+	done
+}
+
+# For repos where we recursively find all SKILL.md files (wildcard)
+install_wildcard() {
+	local repo="$1" branch="$2" base="${3:-.}"
+	clone_repo "$repo" "$branch" || return 0
+	local repo_dir="$TMP_DIR/$repo"
+	local search_dir="$repo_dir/$base"
+	[[ -d "$search_dir" ]] || return 0
+	while IFS= read -r skill_md; do
+		local skill_dir
+		skill_dir="$(dirname "$skill_md")"
+		local name
+		name="$(basename "$skill_dir")"
+		# Skip hidden dirs and the repo root
+		[[ "$name" == "." || "$name" == ".." ]] && continue
+		install_skill "$skill_dir" "$name" wildcard
+	done < <(find "$search_dir" -name SKILL.md -type f 2>/dev/null)
+}
+
+# HashiCorp repos have a nested structure: terraform/<name>/skills/<skill>/
+install_hashicorp() {
+	local repo="$1" branch="$2"
+	shift 2
+	clone_repo "$repo" "$branch" || return 0
+	local repo_dir="$TMP_DIR/$repo"
+	for entry in "$@"; do
+		local src_name="${entry%%→*}"
+		local dst_name="${entry##*→}"
+		if [[ "$src_name" == "$dst_name" ]]; then
+			dst_name="$src_name"
+		fi
+		# Look for SKILL.md in terraform/<src_name>/skills/<src_name>/
+		local skill_path="$repo_dir/terraform/$src_name/skills/$src_name"
+		if [[ -f "$skill_path/SKILL.md" ]]; then
+			install_skill "$skill_path" "$dst_name"
+		else
+			# Fallback: find SKILL.md under terraform/<src_name>/
+			while IFS= read -r skill_md; do
+				local skill_dir
+				skill_dir="$(dirname "$skill_md")"
+				local name
+				name="$(basename "$skill_dir")"
+				install_skill "$skill_dir" "${dst_name:-$name}" wildcard
+			done < <(find "$repo_dir/terraform/$src_name" -name SKILL.md -type f 2>/dev/null)
+		fi
+	done
+}
+
+# ── main ─────────────────────────────────────────────────────────────
+
+printf "Fetching Claude Code skills…\n\n"
+mkdir -p "$SKILLS_DIR"
+
+# 1. anthropics/skills
+printf "[1/28] anthropics/skills\n"
+install_named anthropics/skills main "skills/" \
+	docx doc-coauthoring pptx xlsx pdf \
+	algorithmic-art canvas-design frontend-design \
+	slack-gif-creator theme-factory web-artifacts-builder \
+	mcp-builder webapp-testing brand-guidelines internal-comms
+
+# 2. vercel-labs/agent-skills
+printf "[2/28] vercel-labs/agent-skills\n"
+install_named vercel-labs/agent-skills main "skills/" \
+	react-best-practices web-design-guidelines \
+	composition-patterns react-native-skills
+# Also grab the claude.ai/ nested skill (repo already cloned above)
+if [[ -d "$TMP_DIR/vercel-labs/agent-skills/skills/claude.ai/vercel-deploy-claimable" ]]; then
+	install_skill "$TMP_DIR/vercel-labs/agent-skills/skills/claude.ai/vercel-deploy-claimable" vercel-deploy-claimable
+fi
+
+# 3. vercel-labs/next-skills
+printf "[3/28] vercel-labs/next-skills\n"
+install_named vercel-labs/next-skills main "skills/" \
+	next-best-practices next-cache-components next-upgrade
+
+# 4. cloudflare/skills
+printf "[4/28] cloudflare/skills\n"
+install_named cloudflare/skills main "skills/" \
+	wrangler
+
+# 5. supabase/agent-skills
+printf "[5/28] supabase/agent-skills\n"
+install_named supabase/agent-skills main "skills/" \
+	supabase-postgres-best-practices
+
+# 6. google-labs-code/stitch-skills
+printf "[6/28] google-labs-code/stitch-skills\n"
+install_named google-labs-code/stitch-skills main "skills/" \
+	design-md enhance-prompt react-components \
+	"remotion→stitch-remotion" shadcn-ui stitch-loop
+
+# 7. huggingface/skills
+printf "[7/28] huggingface/skills\n"
+install_named huggingface/skills main "skills/" \
+	hugging-face-evaluation hugging-face-jobs \
+	hugging-face-model-trainer hugging-face-paper-publisher
+
+# 8. stripe/ai
+printf "[8/28] stripe/ai\n"
+install_named stripe/ai main "skills/" \
+	stripe-best-practices upgrade-stripe
+
+# 9. callstackincubator/agent-skills
+printf "[9/28] callstackincubator/agent-skills\n"
+install_named callstackincubator/agent-skills main "skills/" \
+	react-native-best-practices upgrading-react-native
+
+# 10. expo/skills
+printf "[10/28] expo/skills\n"
+install_named expo/skills main "plugins/" \
+	expo-app-design expo-deployment upgrading-expo
+
+# 11. better-auth/skills
+printf "[11/28] better-auth/skills\n"
+install_named better-auth/skills main "better-auth/" \
+	best-practices commands create-auth
+
+# 12. neondatabase/agent-skills
+printf "[12/28] neondatabase/agent-skills\n"
+install_named neondatabase/agent-skills main "skills/" \
+	"neon-postgres→using-neon"
+
+# 13. dmmulroy/cloudflare-skill
+printf "[13/28] dmmulroy/cloudflare-skill\n"
+install_named dmmulroy/cloudflare-skill main "skills/" \
+	cloudflare
+
+# 14. hashicorp/agent-skills
+printf "[14/28] hashicorp/agent-skills\n"
+install_hashicorp hashicorp/agent-skills main \
+	code-generation module-generation provider-development
+
+# 15. sanity-io/agent-toolkit
+printf "[15/28] sanity-io/agent-toolkit\n"
+install_named sanity-io/agent-toolkit main "skills/" \
+	sanity-best-practices content-modeling-best-practices \
+	seo-aeo-best-practices content-experimentation-best-practices
+
+# 16. remotion-dev/skills
+printf "[16/28] remotion-dev/skills\n"
+install_named remotion-dev/skills main "skills/" \
+	remotion
+
+# 17. WordPress/agent-skills (uses trunk branch)
+printf "[17/28] WordPress/agent-skills\n"
+install_named WordPress/agent-skills trunk "skills/" \
+	wordpress-router wp-project-triage wp-block-development \
+	wp-block-themes wp-plugin-development wp-rest-api \
+	wp-interactivity-api wp-abilities-api wp-wpcli-and-ops \
+	wp-performance wp-phpstan wp-playground wpds
+
+# 18. openai/skills
+printf "[18/28] openai/skills\n"
+install_named openai/skills main "skills/.curated/" \
+	cloudflare-deploy figma-implement-design figma \
+	gh-address-comments gh-fix-ci jupyter-notebook \
+	netlify-deploy vercel-deploy render-deploy sentry
+
+# 19. ComposioHQ/awesome-claude-skills (uses master branch)
+printf "[19/28] ComposioHQ/awesome-claude-skills\n"
+install_named ComposioHQ/awesome-claude-skills master "./" \
+	content-research-writer competitive-ads-extractor
+
+# 20. obra/superpowers
+printf "[20/28] obra/superpowers\n"
+install_named obra/superpowers main "skills/" \
+	brainstorming writing-plans executing-plans \
+	systematic-debugging root-cause-tracing using-git-worktrees
+
+# 21. coreyhaines31/marketingskills (wildcard)
+printf "[21/28] coreyhaines31/marketingskills\n"
+install_wildcard coreyhaines31/marketingskills main skills
+
+# 22. BrianRWagner/ai-marketing-skills (wildcard)
+printf "[22/28] BrianRWagner/ai-marketing-skills\n"
+install_wildcard BrianRWagner/ai-marketing-skills main .
+
+# 23. AgriciDaniel/claude-seo (wildcard)
+printf "[23/28] AgriciDaniel/claude-seo\n"
+install_wildcard AgriciDaniel/claude-seo main skills
+
+# 24. wshuyi/x-article-publisher-skill
+printf "[24/28] wshuyi/x-article-publisher-skill\n"
+install_named wshuyi/x-article-publisher-skill main "skills/" \
+	x-article-publisher
+
+# 25. jthack/ffuf_claude_skill (wildcard, root)
+printf "[25/28] jthack/ffuf_claude_skill\n"
+install_wildcard jthack/ffuf_claude_skill main .
+
+# 26. lackeyjb/playwright-skill
+printf "[26/28] lackeyjb/playwright-skill\n"
+install_named lackeyjb/playwright-skill main "skills/" \
+	playwright-skill
+
+# 27. K-Dense-AI/claude-scientific-skills (wildcard)
+printf "[27/28] K-Dense-AI/claude-scientific-skills\n"
+install_wildcard K-Dense-AI/claude-scientific-skills main scientific-skills
+
+# 28. Orchestra-Research/AI-research-SKILLs (wildcard, recursive from root)
+printf "[28/28] Orchestra-Research/AI-research-SKILLs\n"
+install_wildcard Orchestra-Research/AI-research-SKILLs main .
+
+printf "\n✓ Installed %d skills into %s\n" "$total" "$SKILLS_DIR"
+if [[ "$skipped" -gt 0 ]]; then
+	printf "  (%d entries skipped — no SKILL.md found)\n" "$skipped"
+fi
