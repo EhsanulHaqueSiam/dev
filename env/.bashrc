@@ -111,14 +111,6 @@ export PATH="./bin:$HOME/.local/bin:$HOME/.local/share/omarchy/bin:$PATH"
 # Omarchy
 export OMARCHY_PATH="$HOME/.local/share/omarchy"
 
-# Tool initialization (shared across bash/zsh)
-[[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-init.sh" ]] && \
-    source "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-init.sh"
-
-# Shell functions (bwu, etc.)
-[[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-functions.sh" ]] && \
-    source "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-functions.sh"
-
-# Dev command completions
-[[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/completions.bash" ]] && \
-    source "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/completions.bash"
+# Dev environment (dev command, completions, tool init)
+[[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/init.sh" ]] && \
+    . "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/init.sh"

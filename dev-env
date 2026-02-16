@@ -256,6 +256,9 @@ do_deploy() {
 
 	log "done! configs deployed (copied) to system."
 	log "to save live changes back: dev-env update"
+	echo ""
+	log "using your own .bashrc/.zshrc? add this one line to enable the dev command:"
+	echo '  [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/init.sh" ] && . "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/init.sh"'
 }
 
 # -----------------------------------------------------------------------
