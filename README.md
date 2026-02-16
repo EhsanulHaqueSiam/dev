@@ -33,7 +33,22 @@ First run shows a setup wizard for your SSD path and projects directory. After t
 
 ## Day-to-Day Commands
 
-These are the commands you'll use most often. Every command supports `--dry` to preview without making changes.
+These are the commands you'll use most often. Every command supports `--dry` to preview without making changes and `--help` for detailed usage.
+
+After the first `./dev-env` deploy, the `dev` command is available globally with tab completion:
+
+```bash
+dev run                    # install everything + deploy configs
+dev env compare            # side-by-side diff of repo vs live configs
+dev backup --dry           # preview backup
+dev secrets ssh backup     # encrypt SSH keys to SSD
+dev restore Personal       # restore from latest backup
+dev help                   # show all commands
+```
+
+Tab completion works for all subcommands: `dev <TAB>`, `dev secrets <TAB>`, `dev secrets ssh <TAB>`.
+
+You can also run scripts directly from the repo:
 
 ### Install tools
 
@@ -352,7 +367,9 @@ dev/
     │   ├── atuin/             # Shell history config
     │   ├── dev-env/
     │   │   ├── shell-init.sh       # Tool init (Cargo, Go, Bun, fnm, etc.)
-    │   │   └── shell-functions.sh  # Shell functions (bwu, etc.)
+    │   │   ├── shell-functions.sh  # Shell functions (bwu, etc.)
+    │   │   ├── completions.bash   # Bash tab-completions for dev command
+    │   │   └── completions.zsh    # Zsh tab-completions for dev command
     │   ├── ghostty/           # Terminal (tokyo-night, FiraCode)
     │   ├── mpv/               # Media player
     │   ├── nvim/              # Neovim (LazyVim, 80+ plugins, 18 LSPs)
@@ -360,7 +377,9 @@ dev/
     │   ├── tmux/              # Multiplexer (catppuccin, plugins)
     │   ├── wezterm/           # Alt terminal config
     │   └── yazi/              # File manager (catppuccin, plugins)
-    ├── .local/scripts/        # Custom scripts
+    ├── .local/scripts/
+    │   ├── dev                # Unified command (routes to scripts)
+    │   └── dev-env            # Config manager wrapper
     ├── .bashrc                # Bash config
     ├── .zshrc                 # Zsh config (aliases, vi mode, integrations)
     ├── .profile               # Login shell PATH

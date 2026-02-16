@@ -47,6 +47,30 @@ while [[ $# -gt 0 ]]; do
 		--from)  shift; from_backup="${1:?--from requires a backup name}" ;;
 		--jobs)  shift; jobs="${1:?--jobs requires a number}" ;;
 		--ssd)   shift; SSD="${1:?--ssd requires a path}"; BACKUP_ROOT="$SSD/backups" ;;
+		-h|--help)
+			cat <<-EOF
+			Usage: restore [targets...] [options]
+
+			Restore project directories from an external SSD backup.
+			Safe merge: adds/overwrites files but never deletes local files.
+
+			Examples:
+			  ./restore                         List available backups
+			  ./restore Personal                Restore from latest backup
+			  ./restore Personal/dev            Restore one subfolder
+			  ./restore --from <timestamp> Personal  Restore from specific backup
+			  ./restore --pick Personal         Interactively select files to restore
+
+			Options:
+			  --dry               Preview mode — show what would be restored
+			  --from <timestamp>  Restore from a specific backup (default: latest)
+			  --pick              Interactive file picker (requires gum)
+			  --jobs <n>          Parallel rsync workers (default: $DEFAULT_JOBS)
+			  --ssd <path>        Override SSD mount path
+			  -h, --help          Show this help message
+			EOF
+			exit 0
+			;;
 		*)       targets+=("$1") ;;
 	esac
 	shift

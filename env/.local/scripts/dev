@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+# Unified entry point for the dev-env toolkit
+# Usage: dev <command> [args...]
+
+# Resolve DEV_ENV from saved config (same pattern as dev-env wrapper)
+_config="${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/config"
+DEV_ENV=""
+if [[ -f "$_config" ]] && grep -q '^DEV_ENV_PATH=' "$_config" 2>/dev/null; then
+	DEV_ENV="$(grep '^DEV_ENV_PATH=' "$_config" | head -1 | cut -d= -f2-)"
+	# Strip quotes if present
+	DEV_ENV="${DEV_ENV#\"}"
+	DEV_ENV="${DEV_ENV%\"}"
+fi
+
+if [[ -z "$DEV_ENV" || ! -d "$DEV_ENV" ]]; then
+	echo "[dev] repo path not configured. Run ./dev-env from the repo first."
+	exit 1
+fi
+
+export DEV_ENV
+
+show_help() {
+	cat <<-'EOF'
+	Usage: dev <command> [args...]
+
+	Commands:
+	  run [args]        Run tool installers and deploy configs
+	  env [args]        Manage configs (deploy/capture/update/diff/compare/doctor)
+	  backup [args]     Backup projects to external SSD
+	  restore [args]    Restore projects from SSD backup
+	  secrets [args]    Manage secrets (SSH keys, .env files, Claude config)
+	  tui [args]        Interactive terminal UI
+	  help              Show this help message
+
+	Examples:
+	  dev run                    Install everything + deploy configs
+	  dev env compare            Side-by-side diff of repo vs live configs
+	  dev backup --dry           Preview backup without changes
+	  dev secrets ssh backup     Encrypt SSH keys to SSD
+	  dev tui                    Open interactive menu
+
+	All commands support --help for detailed usage.
+	EOF
+}
+
+case "${1:-help}" in
+	run)      shift; exec "$DEV_ENV/run" "$@" ;;
+	env)      shift; exec "$DEV_ENV/dev-env" "$@" ;;
+	backup)   shift; exec "$DEV_ENV/backup" "$@" ;;
+	restore)  shift; exec "$DEV_ENV/restore" "$@" ;;
+	secrets)  shift; exec "$DEV_ENV/secrets" "$@" ;;
+	tui)      shift; exec "$DEV_ENV/tui" "$@" ;;
+	help|-h|--help) show_help ;;
+	*)
+		echo "[dev] unknown command: $1"
+		echo "Run 'dev help' for usage."
+		exit 1
+		;;
+esac

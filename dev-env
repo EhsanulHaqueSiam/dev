@@ -52,6 +52,35 @@ while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--dry) dry_run="1" ;;
 		--commit) do_commit="1" ;;
+		-h|--help)
+			cat <<-'EOF'
+			Usage: dev-env [command] [options]
+
+			Manage dotfile configs between the repo and your system.
+
+			Commands:
+			  deploy              Copy repo configs to system (default)
+			  capture <path>      Pull a live config into the repo
+			  update [name]       Re-capture all (or matching) tracked configs
+			  diff [name]         Show modified configs (repo vs live)
+			  compare [name]      Side-by-side diff (uses delta if available)
+			  doctor              Diagnose issues (symlinks, perms, drift, deps)
+
+			Options:
+			  --dry               Preview mode — show what would change
+			  --commit            Auto-commit after update
+			  -h, --help          Show this help message
+
+			Examples:
+			  ./dev-env                       Deploy all configs
+			  ./dev-env capture ~/.config/nvim  Pull nvim config into repo
+			  ./dev-env update ghostty        Re-capture only ghostty
+			  ./dev-env update --commit       Re-capture all + git commit
+			  ./dev-env compare               Side-by-side diff
+			  ./dev-env doctor                Health check
+			EOF
+			exit 0
+			;;
 		capture)
 			mode="capture"
 			if [[ $# -gt 1 ]]; then
@@ -212,8 +241,9 @@ do_deploy() {
 		done < <(find "$dotdir" -type f -print0)
 	done
 
-	# Ensure wrapper script is executable (deployed by .local files step above)
+	# Ensure wrapper scripts are executable (deployed by .local files step above)
 	chmod +x "$HOME/.local/scripts/dev-env" 2>/dev/null || true
+	chmod +x "$HOME/.local/scripts/dev" 2>/dev/null || true
 	mkdir -p "$HOME/.local/bin"
 
 	# Reload WM if available

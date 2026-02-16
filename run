@@ -24,6 +24,26 @@ while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--dry)  dry_run="1" ;;
 		--env)  env_only="1" ;;
+		-h|--help)
+			cat <<-'EOF'
+			Usage: run [options] [filter]
+
+			Run tool installers from runs/ and deploy configs.
+
+			Options:
+			  <filter>    Run only the installer matching this name (e.g. rust)
+			  --env       Deploy configs only, skip installers
+			  --dry       Preview mode — show what would run without changes
+			  -h, --help  Show this help message
+
+			Examples:
+			  ./run                Run all installers + deploy configs
+			  ./run rust           Run only the rust installer
+			  ./run --env          Deploy configs only
+			  ./run --dry          Preview what would happen
+			EOF
+			exit 0
+			;;
 		*)      grep_filter="$1" ;;
 	esac
 	shift

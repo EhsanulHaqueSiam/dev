@@ -142,3 +142,7 @@ export OMARCHY_PATH="$HOME/.local/share/omarchy"
 # Shell functions (bwu, etc.)
 [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-functions.sh" ]] && \
     source "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-functions.sh"
+
+# Dev command completions
+[[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/completions.zsh" ]] && \
+    source "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/completions.zsh"

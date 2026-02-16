@@ -97,6 +97,30 @@ while [[ $# -gt 0 ]]; do
 		--keep)   shift; keep="${1:?--keep requires a number}" ;;
 		--jobs)   shift; jobs="${1:?--jobs requires a number}" ;;
 		--ssd)    shift; SSD="${1:?--ssd requires a path}"; BACKUP_ROOT="$SSD/backups" ;;
+		-h|--help)
+			cat <<-EOF
+			Usage: backup [targets...] [options]
+
+			Backup project directories to an external SSD using parallel rsync.
+
+			Modes (auto-detected):
+			  ./backup                  Full snapshot of all configured sources
+			  ./backup Personal         Full snapshot of specific source(s)
+			  ./backup Personal/dev     Update subfolder in latest backup (in-place)
+			  ./backup --sync           Incremental sync to latest backup
+			  ./backup --verify         Compare latest backup against live source
+
+			Options:
+			  --dry               Preview mode — show what would be synced
+			  --sync              Incremental sync (no new snapshot directory)
+			  --verify            Verify latest backup integrity
+			  --keep <n>          Keep N snapshots, prune older ones (default: $DEFAULT_KEEP)
+			  --jobs <n>          Parallel rsync workers (default: $DEFAULT_JOBS)
+			  --ssd <path>        Override SSD mount path
+			  -h, --help          Show this help message
+			EOF
+			exit 0
+			;;
 		*)        targets+=("$1") ;;
 	esac
 	shift
