@@ -126,9 +126,10 @@ main_menu() {
 		local choice
 		choice=$(gum choose \
 			--header "What would you like to do?" \
-			--height 13 \
+			--height 14 \
 			"Install Tools" \
 			"Deploy Configs" \
+			"Skills" \
 			"Backup to SSD" \
 			"Restore from SSD" \
 			"Secrets" \
@@ -141,6 +142,7 @@ main_menu() {
 		case "$choice" in
 			"Install Tools")  menu_install ;;
 			"Deploy Configs") menu_deploy ;;
+			"Skills")         menu_skills ;;
 			"Backup to SSD")  menu_backup ;;
 			"Restore from SSD") menu_restore ;;
 			"Secrets")        menu_secrets ;;
@@ -418,6 +420,215 @@ do_view_installed() {
 		success "✓ $t"
 	done
 	pause
+}
+
+# -----------------------------------------------------------------------
+# Skills — Claude Code skill library
+# -----------------------------------------------------------------------
+menu_skills() {
+	local skills_lib="$DEV_ENV/skills-lib"
+
+	while true; do
+		clear
+		header "Claude Code Skills"
+
+		# Show library stats
+		if [[ -d "$skills_lib" ]]; then
+			local lib_count=0
+			for d in "$skills_lib"/*/; do
+				[[ -d "$d" ]] && lib_count=$(( lib_count + 1 ))
+			done
+			info "Library: $lib_count skills available"
+		else
+			warn "Library: not fetched yet — run fetch first"
+		fi
+
+		# Show project stats
+		local project_dir=".claude/skills"
+		if [[ -d "$project_dir" ]]; then
+			local proj_count=0
+			for d in "$project_dir"/*/; do
+				[[ -d "$d" ]] && proj_count=$(( proj_count + 1 ))
+			done
+			info "Project: $proj_count skill(s) installed"
+		else
+			gum style --foreground 240 "  Project: none installed"
+		fi
+
+		echo ""
+
+		local choice
+		choice=$(gum choose \
+			--header "Skills management:" \
+			--height 11 \
+			"Install Skills" \
+			"Remove Skills" \
+			"View Installed" \
+			"Search Library" \
+			"Browse Library" \
+			"Discover New Skills" \
+			"Fetch / Update Library" \
+			"Back" \
+		) || return 0
+
+		case "$choice" in
+			"Install Skills")    do_skills_install ;;
+			"Remove Skills")     do_skills_remove ;;
+			"View Installed")    do_skills_installed ;;
+			"Search Library")    do_skills_search ;;
+			"Browse Library")    do_skills_browse ;;
+			"Discover New Skills")
+				info "Opening awesome-agent-skills catalog..."
+				xdg-open "https://github.com/VoltAgent/awesome-agent-skills" 2>/dev/null &
+				info "Updated daily with new community and official skills."
+				pause
+				;;
+			"Fetch / Update Library")
+				echo ""
+				"$DEV_ENV/skills-fetch"
+				pause
+				;;
+			"Back") return 0 ;;
+		esac
+	done
+}
+
+do_skills_install() {
+	local skills_lib="$DEV_ENV/skills-lib"
+	if [[ ! -d "$skills_lib" ]]; then
+		error "Library not fetched. Run fetch first."
+		pause
+		return
+	fi
+
+	local available=()
+	for d in "$skills_lib"/*/; do
+		[[ -d "$d" && -f "$d/SKILL.md" ]] || continue
+		available+=("$(basename "$d")")
+	done
+
+	if [[ ${#available[@]} -eq 0 ]]; then
+		error "No skills in library"
+		pause
+		return
+	fi
+
+	echo ""
+	local selected
+	selected=$(printf '%s\n' "${available[@]}" | gum filter \
+		--no-limit \
+		--header "Type to filter, space to select, enter to confirm:" \
+		--height 20 \
+		--placeholder "search skills..." \
+	) || return 0
+
+	if [[ -z "$selected" ]]; then
+		warn "Nothing selected"
+		pause
+		return
+	fi
+
+	local names=()
+	while read -r name; do
+		names+=("$name")
+	done <<< "$selected"
+
+	echo ""
+	gum style --foreground 78 "Selected:"
+	for n in "${names[@]}"; do
+		info "  $n"
+	done
+	echo ""
+
+	if gum confirm "Install ${#names[@]} skill(s) into this project?"; then
+		echo ""
+		"$DEV_ENV/skills" install "${names[@]}"
+	fi
+	pause
+}
+
+do_skills_remove() {
+	local project_dir=".claude/skills"
+	if [[ ! -d "$project_dir" ]]; then
+		warn "No skills installed in this project"
+		pause
+		return
+	fi
+
+	local installed=()
+	for d in "$project_dir"/*/; do
+		[[ -d "$d" ]] && installed+=("$(basename "$d")")
+	done
+
+	if [[ ${#installed[@]} -eq 0 ]]; then
+		warn "No skills installed"
+		pause
+		return
+	fi
+
+	echo ""
+	local selected
+	selected=$(printf '%s\n' "${installed[@]}" | gum choose \
+		--no-limit \
+		--header "Select skills to remove:" \
+		--height 15 \
+	) || return 0
+
+	if [[ -z "$selected" ]]; then
+		warn "Nothing selected"
+		pause
+		return
+	fi
+
+	echo ""
+	warn "Will remove:"
+	echo "$selected" | while read -r name; do
+		info "  $name"
+	done
+	echo ""
+
+	if gum confirm "Remove selected skill(s)?"; then
+		echo ""
+		echo "$selected" | while read -r name; do
+			"$DEV_ENV/skills" remove "$name"
+		done
+	fi
+	pause
+}
+
+do_skills_installed() {
+	clear
+	header "Installed Skills"
+	"$DEV_ENV/skills" installed
+	pause
+}
+
+do_skills_search() {
+	local term
+	term=$(gum input \
+		--header "Search skills:" \
+		--placeholder "e.g. react, terraform, seo..." \
+	) || return 0
+
+	if [[ -z "$term" ]]; then
+		return
+	fi
+
+	echo ""
+	"$DEV_ENV/skills" search "$term"
+	pause
+}
+
+do_skills_browse() {
+	local skills_lib="$DEV_ENV/skills-lib"
+	if [[ ! -d "$skills_lib" ]]; then
+		error "Library not fetched. Run fetch first."
+		pause
+		return
+	fi
+
+	echo ""
+	"$DEV_ENV/skills" list | gum pager
 }
 
 # -----------------------------------------------------------------------
@@ -2612,6 +2823,8 @@ cli_usage() {
 	echo "  secrets-health  secrets health check"
 	echo "  secrets-diff    secrets diff since last backup"
 	echo "  secrets-list    list all secrets"
+	echo "  skills-list     list available skills"
+	echo "  skills-fetch    fetch/update skill library"
 	echo "  deploy          deploy configs"
 	echo "  compare         compare repo vs live configs"
 	echo "  install         install all tools"
@@ -2642,6 +2855,8 @@ if [[ "${1:-}" == "--run" ]]; then
 		deploy)         "$DEV_ENV/dev-env" ;;
 		compare)        "$DEV_ENV/dev-env" compare ;;
 		install)        "$DEV_ENV/run" "${@:3}" ;;
+		skills-list)    "$DEV_ENV/skills" list ;;
+		skills-fetch)   "$DEV_ENV/skills-fetch" ;;
 		doctor)         "$DEV_ENV/dev-env" doctor ;;
 		*)
 			echo "Unknown action: $action"

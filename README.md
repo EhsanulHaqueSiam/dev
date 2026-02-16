@@ -56,6 +56,19 @@ Tab completion works for all subcommands: `dev <TAB>`, `dev secrets <TAB>`, `dev
 
 > **Note:** If you deploy the repo's `.bashrc`/`.zshrc` (via `./dev-env`), this line is already included. The one-liner is for people who keep their own shell config.
 
+### Manage Claude Code skills
+
+```bash
+dev skills fetch                      # download 350+ skills from GitHub
+dev skills list                       # show available skills
+dev skills search react               # filter by keyword
+dev skills install docx pptx          # install into current project
+dev skills remove docx                # remove from current project
+dev skills installed                  # show what's in current project
+```
+
+Skills are installed per-project to `.claude/skills/<name>/`. Browse the full catalog at [awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) (updated daily).
+
 You can also run scripts directly from the repo:
 
 ### Install tools
@@ -259,6 +272,21 @@ Give projects short names for env commands:
 ./secrets alias remove my-long-project-name      # remove
 ```
 
+### `./skills` -- Claude Code skill manager
+
+Manages a local library of 350+ Claude Code skills downloaded from GitHub. Skills are installed per-project.
+
+```bash
+./skills fetch                # download/update all skills from GitHub
+./skills list                 # list available skills with descriptions
+./skills search <term>        # filter by keyword
+./skills install <name> ...   # copy skill(s) into .claude/skills/ in current dir
+./skills remove <name>        # remove from current project
+./skills installed            # show what's installed in current project
+```
+
+Skills come from: [Anthropic](https://github.com/anthropics/skills), [Vercel](https://github.com/vercel-labs/agent-skills), [OpenAI](https://github.com/openai/skills), [Cloudflare](https://github.com/cloudflare/skills), [Stripe](https://github.com/stripe/ai), [HuggingFace](https://github.com/huggingface/skills), [WordPress](https://github.com/WordPress/agent-skills), and many more. Full catalog: [awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills).
+
 ### `./tui` -- Interactive terminal UI
 
 Full menu-driven interface for everything above. Powered by [gum](https://github.com/charmbracelet/gum) (auto-installs if missing).
@@ -271,7 +299,7 @@ Full menu-driven interface for everything above. Powered by [gum](https://github
 ./tui --list           # list all available actions
 ```
 
-**Menus:** Install Tools, Deploy Configs, Backup, Restore, Secrets, Status, Live Dashboard, Settings
+**Menus:** Install Tools, Deploy Configs, Skills, Backup, Restore, Secrets, Status, Live Dashboard, Settings
 
 **Settings:** SSD path, multiple SSDs (add/remove/switch), projects directory, source folders -- all changeable at any time.
 
@@ -347,10 +375,14 @@ dev/
 ├── backup                 # Backup projects → SSD (parallel rsync, exFAT-optimized)
 ├── restore                # Restore projects ← SSD (safe merge)
 ├── secrets                # Secrets manager (SSH + .env + Claude, age + Bitwarden)
+├── skills                 # Skill manager (list/search/install/remove)
+├── skills-fetch           # Download skills from GitHub into skills-lib/
 ├── tui                    # Interactive terminal UI (gum)
 │
 ├── lib/
 │   └── config.sh          # Shared config (SSD path, projects dir, multi-SSD support)
+│
+├── skills-lib/            # Downloaded skill library (gitignored, 350+ skills)
 │
 ├── runs/                  # Tool installers (one script per tool)
 │   ├── age                # Encryption tool        ├── miniconda     # Python envs
@@ -463,6 +495,13 @@ $SSD/
 ./secrets claude backup            # encrypt Claude config
 ./secrets --health                 # health check
 ./secrets --diff                   # what changed
+
+# Skills
+dev skills fetch                       # download skill library
+dev skills list                        # show all skills
+dev skills search react                # find skills by keyword
+dev skills install docx pptx           # install into current project
+dev skills installed                   # show project skills
 
 # Add --bw for Bitwarden, --dry for preview, --ssd <path> to override SSD
 ```
