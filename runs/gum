@@ -2,4 +2,8 @@
 set -euo pipefail
 
 # gum — glamorous shell scripts (required for ./tui)
-yay -S --noconfirm --needed gum
+if command -v pacman &>/dev/null; then
+	sudo pacman -S --noconfirm --needed gum
+else
+	echo "[gum] Arch Linux required"; exit 1
+fi

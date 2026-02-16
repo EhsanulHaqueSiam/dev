@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 
-# Auto-detect repo location from this script's symlink target
-SCRIPT_SOURCE="$(readlink -f "${BASH_SOURCE[0]}")"
-REPO_DIR="$(dirname "$(dirname "$(dirname "$(dirname "$SCRIPT_SOURCE")")")")"
+# Find dev repo via saved config (set during dev-env deploy)
+_config="${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/config"
+DEV_ENV=""
+if [[ -f "$_config" ]] && grep -q '^DEV_ENV_PATH=' "$_config" 2>/dev/null; then
+	DEV_ENV="$(grep '^DEV_ENV_PATH=' "$_config" | head -1 | cut -d= -f2-)"
+fi
 
-(
-cd "$REPO_DIR"
-./dev-env
-hash -r
-)
+if [[ -z "$DEV_ENV" || ! -d "$DEV_ENV" ]]; then
+	echo "[dev-env] repo path not configured. Run ./dev-env from the repo first."
+	exit 1
+fi
+
+export DEV_ENV
+exec "$DEV_ENV/dev-env" "$@"

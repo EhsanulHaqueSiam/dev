@@ -1,3 +1,10 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-yay -S --noconfirm --needed expressvpn
+if command -v yay &>/dev/null; then
+	yay -S --noconfirm --needed expressvpn
+elif command -v paru &>/dev/null; then
+	paru -S --noconfirm --needed expressvpn
+else
+	echo "[expressvpn] AUR helper (yay/paru) required"; exit 1
+fi

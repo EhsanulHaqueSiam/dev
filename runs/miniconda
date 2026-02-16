@@ -1,3 +1,10 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-yay -S --noconfirm --needed miniconda3
+if command -v yay &>/dev/null; then
+	yay -S --noconfirm --needed miniconda3
+elif command -v paru &>/dev/null; then
+	paru -S --noconfirm --needed miniconda3
+else
+	echo "[miniconda] AUR helper (yay/paru) required"; exit 1
+fi

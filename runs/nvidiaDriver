@@ -7,7 +7,12 @@ if ! lspci 2>/dev/null | grep -qi nvidia; then
 	exit 0
 fi
 
-sudo pacman -S --noconfirm --needed nvidia nvidia-utils nvidia-settings cuda
+if command -v pacman &>/dev/null; then
+	sudo pacman -S --noconfirm --needed nvidia nvidia-utils nvidia-settings cuda
+else
+	echo "[nvidiaDriver] pacman not found — skipping (not Arch-based)"
+	exit 0
+fi
 
 echo "[nvidiaDriver] verifying installation..."
 nvidia-smi

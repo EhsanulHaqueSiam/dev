@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# -----------------------------------------------------------------------
+# Bootstrap — set up dev environment on a fresh machine
+#
+# Usage (fresh machine):
+#   curl -fsSL https://raw.githubusercontent.com/EhsanulHaqueSiam/dev/main/bootstrap | bash
+#
+# Or if you already have the repo:
+#   ./bootstrap
+#
+# What it does:
+#   1. Installs git + base-devel (if missing)
+#   2. Clones the dev repo (HTTPS, since SSH keys may not exist yet)
+#   3. Runs the full setup: ./run (installers + config deploy)
+#   4. Prompts to restore secrets from SSD
+# -----------------------------------------------------------------------
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+log()  { echo -e "${GREEN}[bootstrap]${NC} $1"; }
+warn() { echo -e "${YELLOW}[bootstrap]${NC} $1"; }
+err()  { echo -e "${RED}[bootstrap]${NC} $1"; }
+info() { echo -e "${BLUE}[bootstrap]${NC} $1"; }
+
+REPO_HTTPS="https://github.com/EhsanulHaqueSiam/dev.git"
+REPO_SSH="git@github.com:EhsanulHaqueSiam/dev.git"
+DEV_DIR="$HOME/Personal/dev"
+
+# -----------------------------------------------------------------------
+# Step 1: Ensure git is available
+# -----------------------------------------------------------------------
+log "checking prerequisites..."
+
+if ! command -v git &>/dev/null; then
+	warn "git not found — installing..."
+	if command -v pacman &>/dev/null; then
+		sudo pacman -S --noconfirm --needed git base-devel
+	elif command -v apt-get &>/dev/null; then
+		sudo apt-get update && sudo apt-get install -y git build-essential
+	elif command -v dnf &>/dev/null; then
+		sudo dnf install -y git
+	elif command -v brew &>/dev/null; then
+		brew install git
+	else
+		err "cannot install git — install it manually and re-run"
+		exit 1
+	fi
+fi
+
+log "git: $(git --version)"
+
+# -----------------------------------------------------------------------
+# Step 2: Clone the dev repo
+# -----------------------------------------------------------------------
+if [[ -d "$DEV_DIR/.git" ]]; then
+	log "dev repo already exists at $DEV_DIR"
+	info "pulling latest..."
+	git -C "$DEV_DIR" pull --ff-only 2>/dev/null || warn "pull failed (offline or diverged)"
+else
+	log "cloning dev repo..."
+	mkdir -p "$(dirname "$DEV_DIR")"
+
+	# Try SSH first (if keys exist), fall back to HTTPS
+	if [[ -f "$HOME/.ssh/id_ed25519" ]] && ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+		log "using SSH..."
+		git clone "$REPO_SSH" "$DEV_DIR"
+	else
+		info "SSH not available — using HTTPS (you can switch to SSH later)"
+		git clone "$REPO_HTTPS" "$DEV_DIR"
+	fi
+
+	log "cloned to $DEV_DIR"
+fi
+
+# -----------------------------------------------------------------------
+# Step 3: Make scripts executable
+# -----------------------------------------------------------------------
+log "setting permissions..."
+chmod +x "$DEV_DIR/run" "$DEV_DIR/dev-env" "$DEV_DIR/backup" "$DEV_DIR/restore" \
+	"$DEV_DIR/secrets" "$DEV_DIR/tui" "$DEV_DIR/bootstrap" 2>/dev/null || true
+
+if [[ -d "$DEV_DIR/runs" ]]; then
+	chmod +x "$DEV_DIR"/runs/* 2>/dev/null || true
+fi
+
+# -----------------------------------------------------------------------
+# Step 4: Run full setup
+# -----------------------------------------------------------------------
+echo ""
+echo -e "${BOLD}$(printf '%.0s─' {1..50})${NC}"
+log "running full setup..."
+echo -e "${BOLD}$(printf '%.0s─' {1..50})${NC}"
+echo ""
+
+"$DEV_DIR/run"
+
+# -----------------------------------------------------------------------
+# Step 5: Restore secrets (optional)
+# -----------------------------------------------------------------------
+echo ""
+echo -e "${BOLD}$(printf '%.0s─' {1..50})${NC}"
+log "secrets restoration"
+echo -e "${BOLD}$(printf '%.0s─' {1..50})${NC}"
+echo ""
+
+info "if you have your SSD connected, you can restore secrets now:"
+info "  SSH keys:      $DEV_DIR/secrets ssh restore"
+info "  Env files:     $DEV_DIR/secrets env restore"
+info "  Claude config: $DEV_DIR/secrets claude restore"
+echo ""
+info "or use the TUI:  $DEV_DIR/tui"
+echo ""
+
+# Check if SSD is connected
+source "$DEV_DIR/lib/config.sh"
+if mountpoint -q "$SSD" 2>/dev/null || try_mount_ssd 2>/dev/null; then
+	log "SSD detected at $SSD"
+	echo ""
+	echo -n "restore SSH keys from SSD? [y/N] "
+	read -r ans
+	if [[ "$ans" =~ ^[Yy] ]]; then
+		"$DEV_DIR/secrets" ssh restore
+	fi
+
+	echo ""
+	echo -n "restore env files from SSD? [y/N] "
+	read -r ans
+	if [[ "$ans" =~ ^[Yy] ]]; then
+		"$DEV_DIR/secrets" env restore
+	fi
+
+	echo ""
+	echo -n "restore Claude config from SSD? [y/N] "
+	read -r ans
+	if [[ "$ans" =~ ^[Yy] ]]; then
+		"$DEV_DIR/secrets" claude restore
+	fi
+
+	# Switch to SSH remote if keys are now available
+	if [[ -f "$HOME/.ssh/id_ed25519" ]]; then
+		log "switching dev repo remote to SSH..."
+		git -C "$DEV_DIR" remote set-url origin "$REPO_SSH" 2>/dev/null || true
+	fi
+else
+	warn "SSD not connected — you can restore secrets later with: $DEV_DIR/secrets"
+fi
+
+# -----------------------------------------------------------------------
+# Done
+# -----------------------------------------------------------------------
+echo ""
+echo -e "${GREEN}================================${NC}"
+log "bootstrap complete!"
+echo -e "${GREEN}================================${NC}"
+echo ""
+info "next steps:"
+info "  TUI:     $DEV_DIR/tui"
+info "  Backup:  $DEV_DIR/backup"
+info "  Secrets: $DEV_DIR/secrets --health"
+echo ""

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-sudo pacman -S --noconfirm --needed zsh
-hash -r
+if command -v pacman &>/dev/null; then
+	sudo pacman -S --noconfirm --needed zsh
+	hash -r
+fi
 
 # Install autosuggestions via git clone (single source of truth)
 if [ ! -d "$HOME/.zsh/zsh-autosuggestions" ]; then

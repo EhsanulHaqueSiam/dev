@@ -2,6 +2,15 @@
 set -euo pipefail
 
 # Google Calendar CLI — needed for tmux meeting status
-pip install --user gcalcli
+# Use pipx to avoid PEP 668 externally-managed-environment errors
+if ! command -v pipx &>/dev/null; then
+	if command -v pacman &>/dev/null; then
+		sudo pacman -S --noconfirm --needed python-pipx
+	else
+		echo "[gcalcli] Arch Linux required"; exit 1
+	fi
+fi
+
+pipx install gcalcli
 
 echo "[gcalcli] installed. Run 'gcalcli init' to authenticate with Google Calendar."

@@ -1,3 +1,15 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-yay -S --noconfirm --needed nodejs npm
+# If fnm is installed, let it manage node — skip pacman install
+if command -v fnm &>/dev/null; then
+	echo "[node] fnm detected — skipping pacman install (fnm manages node)"
+	echo "[node] use 'fnm install --lts' to install/update node via fnm"
+	exit 0
+fi
+
+if command -v pacman &>/dev/null; then
+	sudo pacman -S --noconfirm --needed nodejs npm
+else
+	echo "[node] Arch Linux required"; exit 1
+fi

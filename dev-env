@@ -16,14 +16,7 @@ if [ -z "${DEV_ENV:-}" ]; then
 fi
 if [ -z "${DEV_ENV:-}" ]; then
 	# Fall back to script location (works when run directly from repo)
-	_self="${BASH_SOURCE[0]}"
-	while [[ -L "$_self" ]]; do
-		_dir="$(cd "$(dirname "$_self")" &>/dev/null && pwd)"
-		_self="$(readlink "$_self")"
-		[[ "$_self" != /* ]] && _self="$_dir/$_self"
-	done
-	DEV_ENV="$(cd "$(dirname "$_self")" &>/dev/null && pwd)"
-	unset _self _dir
+	DEV_ENV="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 fi
 
 # Validate: DEV_ENV must contain env/ directory
@@ -37,6 +30,7 @@ fi
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+BOLD='\033[1m'
 NC='\033[0m'
 
 BACKUP_DIR="$HOME/.config-backup/$(date +%Y%m%d-%H%M%S)"
@@ -49,24 +43,42 @@ err()  { echo -e "${RED}[dev-env]${NC} $1"; }
 # Parse arguments
 # -----------------------------------------------------------------------
 dry_run="0"
+do_commit="0"
 mode="deploy"
 capture_path=""
+filter_name=""
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--dry) dry_run="1" ;;
+		--commit) do_commit="1" ;;
 		capture)
 			mode="capture"
-			shift
-			capture_path="${1:-}"
+			if [[ $# -gt 1 ]]; then
+				shift; capture_path="$1"
+			fi
 			;;
 		update)
 			mode="update"
 			;;
+		diff)
+			mode="diff"
+			;;
+		compare)
+			mode="compare"
+			;;
+		doctor)
+			mode="doctor"
+			;;
 		deploy)
 			mode="deploy"
 			;;
-		*) ;;
+		*)
+			# Filter argument for update/diff/compare (e.g. dev-env update ghostty)
+			if [[ "$mode" == "update" || "$mode" == "diff" || "$mode" == "compare" ]]; then
+				filter_name="$1"
+			fi
+			;;
 	esac
 	shift
 done
@@ -74,7 +86,7 @@ done
 # Backup existing file/dir before overwriting
 backup() {
 	local target="$1"
-	if [ -e "$target" ] && [ ! -L "$target" ]; then
+	if [ -e "$target" ]; then
 		mkdir -p "$BACKUP_DIR"
 		local name
 		name="$(basename "$target")"
@@ -102,8 +114,8 @@ copy_dir() {
 	fi
 
 	if dry "  would copy: $src -> $dest"; then
-		# Backup existing (only real files/dirs, not symlinks)
-		if [ -e "$dest" ] || [ -L "$dest" ]; then
+		# Backup existing before replacing
+		if [ -e "$dest" ]; then
 			backup "$dest"
 			rm -rf "$dest"
 		fi
@@ -124,7 +136,7 @@ copy_file() {
 	fi
 
 	if dry "  would copy: $src -> $dest"; then
-		if [ -e "$dest" ] || [ -L "$dest" ]; then
+		if [ -e "$dest" ]; then
 			backup "$dest"
 			rm -f "$dest"
 		fi
@@ -141,9 +153,9 @@ do_deploy() {
 	# Save repo path so dev-env works from anywhere after deploy
 	mkdir -p "$(dirname "$_dev_env_config")"
 	if [ -f "$_dev_env_config" ] && grep -q '^DEV_ENV_PATH=' "$_dev_env_config" 2>/dev/null; then
-		sed -i "s|^DEV_ENV_PATH=.*|DEV_ENV_PATH=$DEV_ENV|" "$_dev_env_config"
+		sed -i "s|^DEV_ENV_PATH=.*|DEV_ENV_PATH=\"$DEV_ENV\"|" "$_dev_env_config"
 	else
-		echo "DEV_ENV_PATH=$DEV_ENV" >> "$_dev_env_config"
+		echo "DEV_ENV_PATH=\"$DEV_ENV\"" >> "$_dev_env_config"
 	fi
 	log "saved repo path: $DEV_ENV"
 
@@ -187,9 +199,20 @@ do_deploy() {
 		copy_file "$dotfile" "$HOME/$name"
 	done
 
-	# Self-install: copy dev-env to PATH
-	mkdir -p "$HOME/.local/scripts"
-	copy_file "$DEV_ENV/dev-env" "$HOME/.local/scripts/dev-env"
+	# Home dot-directories (merge tracked files, don't replace whole dir)
+	for dotdir in "$DEV_ENV"/env/.*/; do
+		[ -d "$dotdir" ] || continue
+		name="$(basename "$dotdir")"
+		[ "$name" = "." ] || [ "$name" = ".." ] || [ "$name" = ".config" ] || [ "$name" = ".local" ] && continue
+		log "deploying ~/$name/ (tracked files)..."
+		mkdir -p "$HOME/$name"
+		while IFS= read -r -d '' tracked_file; do
+			local relpath="${tracked_file#$dotdir}"
+			copy_file "$tracked_file" "$HOME/$name/$relpath"
+		done < <(find "$dotdir" -type f -print0)
+	done
+
+	# Ensure wrapper script is executable (deployed by .local files step above)
 	chmod +x "$HOME/.local/scripts/dev-env" 2>/dev/null || true
 	mkdir -p "$HOME/.local/bin"
 
@@ -245,10 +268,16 @@ do_capture() {
 		local rel="${src_path#$HOME/.local/}"
 		dest_path="$DEV_ENV/env/.local/$rel"
 	elif [[ "$src_path" == "$HOME/."* ]]; then
-		# Home dotfile
-		local name
-		name=$(basename "$src_path")
-		dest_path="$DEV_ENV/env/$name"
+		# Home dotfile or file inside a home dot-directory
+		local rel="${src_path#$HOME/}"
+		local top="${rel%%/*}"
+		if [[ "$rel" == */* && -d "$HOME/$top" ]]; then
+			# File inside a dot-directory (e.g. ~/.claude/settings.json)
+			dest_path="$DEV_ENV/env/$rel"
+		else
+			# Single dotfile (e.g. ~/.bashrc)
+			dest_path="$DEV_ENV/env/$rel"
+		fi
 	else
 		err "cannot determine repo location for: $src_path"
 		err "path must be under ~/.config/, ~/.local/, or a ~/.<dotfile>"
@@ -276,15 +305,20 @@ do_capture() {
 # Update: re-capture all tracked configs from live system into repo
 # -----------------------------------------------------------------------
 do_update() {
-	local updated=0 missing=0
+	local updated=0 missing=0 skipped=0
 
-	log "updating tracked configs from live system..."
+	if [[ -n "$filter_name" ]]; then
+		log "updating tracked configs matching '$filter_name'..."
+	else
+		log "updating tracked configs from live system..."
+	fi
 
 	# .config/ directories
 	for dir in "$DEV_ENV"/env/.config/*/; do
 		[[ -d "$dir" ]] || continue
 		local name
 		name=$(basename "$dir")
+		[[ -n "$filter_name" && "$name" != *"$filter_name"* ]] && { skipped=$(( skipped + 1 )); continue; }
 		local live_path="$XDG_CONFIG_HOME/$name"
 
 		if [[ -d "$live_path" ]]; then
@@ -307,6 +341,7 @@ do_update() {
 		[[ -f "$file" ]] || continue
 		local name
 		name=$(basename "$file")
+		[[ -n "$filter_name" && "$name" != *"$filter_name"* ]] && { skipped=$(( skipped + 1 )); continue; }
 		local live_path="$XDG_CONFIG_HOME/$name"
 
 		if [[ -f "$live_path" ]]; then
@@ -329,6 +364,7 @@ do_update() {
 		local name
 		name=$(basename "$dotfile")
 		[[ "$name" == "." || "$name" == ".." ]] && continue
+		[[ -n "$filter_name" && "$name" != *"$filter_name"* ]] && { skipped=$(( skipped + 1 )); continue; }
 		local live_path="$HOME/$name"
 
 		if [[ -f "$live_path" ]]; then
@@ -345,7 +381,350 @@ do_update() {
 		fi
 	done
 
+	# Home dot-directories (update only tracked files)
+	for dotdir in "$DEV_ENV"/env/.*/; do
+		[[ -d "$dotdir" ]] || continue
+		local name
+		name=$(basename "$dotdir")
+		[[ "$name" == "." || "$name" == ".." || "$name" == ".config" || "$name" == ".local" ]] && continue
+		[[ -n "$filter_name" && "$name" != *"$filter_name"* ]] && { skipped=$(( skipped + 1 )); continue; }
+
+		while IFS= read -r -d '' tracked_file; do
+			local relpath="${tracked_file#$dotdir}"
+			local live_path="$HOME/$name/$relpath"
+
+			if [[ -f "$live_path" ]]; then
+				if [[ $dry_run == "1" ]]; then
+					warn "DRY RUN — would update: $name/$relpath"
+				else
+					cp "$live_path" "$tracked_file"
+					log "updated: $name/$relpath"
+				fi
+				updated=$(( updated + 1 ))
+			else
+				warn "missing on system: ~/$name/$relpath"
+				missing=$(( missing + 1 ))
+			fi
+		done < <(find "$dotdir" -type f -print0)
+	done
+
 	log "done: $updated updated, $missing missing"
+
+	# Auto-commit if requested
+	if [[ $do_commit == "1" && $dry_run == "0" && $updated -gt 0 ]]; then
+		echo ""
+		log "committing changes..."
+		cd "$DEV_ENV"
+		git add -A env/
+		local msg="update configs"
+		[[ -n "$filter_name" ]] && msg="update $filter_name config"
+		git commit -m "$msg" && log "committed: $msg" || warn "nothing to commit"
+	fi
+}
+
+# -----------------------------------------------------------------------
+# Diff: compare repo configs vs live system
+# -----------------------------------------------------------------------
+do_diff() {
+	local changed=0 missing=0 identical=0
+
+	log "comparing repo configs vs live system..."
+	echo ""
+
+	diff_file() {
+		local repo_file="$1" live_file="$2" label="$3"
+
+		if [[ -n "$filter_name" && "$label" != *"$filter_name"* ]]; then
+			return
+		fi
+
+		if [[ ! -f "$live_file" ]]; then
+			warn "  $label  (missing on system)"
+			missing=$(( missing + 1 ))
+			return
+		fi
+
+		if [[ ! -f "$repo_file" ]]; then
+			warn "  $label  (missing in repo)"
+			missing=$(( missing + 1 ))
+			return
+		fi
+
+		if diff -q "$repo_file" "$live_file" &>/dev/null; then
+			identical=$(( identical + 1 ))
+		else
+			echo -e "${RED}  $label  (modified)${NC}"
+			diff --color=always -u "$repo_file" "$live_file" 2>/dev/null | head -30
+			echo ""
+			changed=$(( changed + 1 ))
+		fi
+	}
+
+	# .config/ directories
+	for dir in "$DEV_ENV"/env/.config/*/; do
+		[[ -d "$dir" ]] || continue
+		local name
+		name=$(basename "$dir")
+		while IFS= read -r -d '' repo_file; do
+			local relpath="${repo_file#$DEV_ENV/env/}"
+			diff_file "$repo_file" "$HOME/$relpath" "$relpath"
+		done < <(find "$dir" -type f -print0)
+	done
+
+	# .config/ standalone files
+	for file in "$DEV_ENV"/env/.config/*; do
+		[[ -f "$file" ]] || continue
+		local name
+		name=$(basename "$file")
+		diff_file "$file" "$XDG_CONFIG_HOME/$name" ".config/$name"
+	done
+
+	# Home dotfiles
+	for dotfile in "$DEV_ENV"/env/.*; do
+		[[ -f "$dotfile" ]] || continue
+		local name
+		name=$(basename "$dotfile")
+		[[ "$name" == "." || "$name" == ".." ]] && continue
+		diff_file "$dotfile" "$HOME/$name" "$name"
+	done
+
+	# Home dot-directories
+	for dotdir in "$DEV_ENV"/env/.*/; do
+		[[ -d "$dotdir" ]] || continue
+		local name
+		name=$(basename "$dotdir")
+		[[ "$name" == "." || "$name" == ".." || "$name" == ".config" || "$name" == ".local" ]] && continue
+		while IFS= read -r -d '' repo_file; do
+			local relpath="${repo_file#$dotdir}"
+			diff_file "$repo_file" "$HOME/$name/$relpath" "$name/$relpath"
+		done < <(find "$dotdir" -type f -print0)
+	done
+
+	echo ""
+	log "result: $changed modified, $identical identical, $missing missing"
+}
+
+# -----------------------------------------------------------------------
+# Compare: side-by-side diff of repo configs vs live system
+# -----------------------------------------------------------------------
+do_compare() {
+	local changed=0 identical=0 missing=0
+
+	log "comparing repo configs vs live system..."
+	echo ""
+
+	# Use delta for pretty diffs if available, else fall back to diff
+	local diff_cmd="diff -u --color=always"
+	if command -v delta &>/dev/null; then
+		diff_cmd="delta --side-by-side"
+	fi
+
+	compare_file() {
+		local repo_file="$1" live_file="$2" label="$3"
+		[[ -n "$filter_name" && "$label" != *"$filter_name"* ]] && return
+
+		if [[ ! -f "$live_file" ]]; then
+			warn "  $label  (missing on system)"
+			missing=$(( missing + 1 ))
+			return
+		fi
+		if diff -q "$repo_file" "$live_file" &>/dev/null; then
+			identical=$(( identical + 1 ))
+		else
+			echo -e "\n${BOLD}--- $label ---${NC}"
+			echo -e "${YELLOW}  repo:${NC} $repo_file"
+			echo -e "${YELLOW}  live:${NC} $live_file"
+			echo ""
+			$diff_cmd "$repo_file" "$live_file" 2>/dev/null | head -80
+			echo ""
+			changed=$(( changed + 1 ))
+		fi
+	}
+
+	# .config/ directories
+	for dir in "$DEV_ENV"/env/.config/*/; do
+		[[ -d "$dir" ]] || continue
+		local name
+		name=$(basename "$dir")
+		while IFS= read -r -d '' repo_file; do
+			local relpath="${repo_file#$DEV_ENV/env/}"
+			compare_file "$repo_file" "$HOME/$relpath" "$relpath"
+		done < <(find "$dir" -type f -print0)
+	done
+
+	# .config/ standalone files
+	for file in "$DEV_ENV"/env/.config/*; do
+		[[ -f "$file" ]] || continue
+		local name
+		name=$(basename "$file")
+		compare_file "$file" "$XDG_CONFIG_HOME/$name" ".config/$name"
+	done
+
+	# Home dotfiles
+	for dotfile in "$DEV_ENV"/env/.*; do
+		[[ -f "$dotfile" ]] || continue
+		local name
+		name=$(basename "$dotfile")
+		[[ "$name" == "." || "$name" == ".." ]] && continue
+		compare_file "$dotfile" "$HOME/$name" "$name"
+	done
+
+	# Home dot-directories
+	for dotdir in "$DEV_ENV"/env/.*/; do
+		[[ -d "$dotdir" ]] || continue
+		local name
+		name=$(basename "$dotdir")
+		[[ "$name" == "." || "$name" == ".." || "$name" == ".config" || "$name" == ".local" ]] && continue
+		while IFS= read -r -d '' repo_file; do
+			local relpath="${repo_file#$dotdir}"
+			compare_file "$repo_file" "$HOME/$name/$relpath" "$name/$relpath"
+		done < <(find "$dotdir" -type f -print0)
+	done
+
+	echo ""
+	log "result: $changed modified, $identical identical, $missing missing"
+}
+
+# -----------------------------------------------------------------------
+# Doctor: diagnose common issues
+# -----------------------------------------------------------------------
+do_doctor() {
+	local issues=0
+
+	log "running diagnostics..."
+	echo ""
+
+	# 1. Broken symlinks in home config dirs
+	echo -e "${GREEN}Broken symlinks${NC}"
+	local broken=0
+	for dir in "$XDG_CONFIG_HOME" "$HOME/.local"; do
+		while IFS= read -r link; do
+			warn "  broken: $link -> $(readlink "$link" 2>/dev/null)"
+			broken=$(( broken + 1 ))
+		done < <(find "$dir" -xtype l 2>/dev/null)
+	done
+	if [[ $broken -eq 0 ]]; then
+		log "  none found"
+	else
+		issues=$(( issues + broken ))
+	fi
+	echo ""
+
+	# 2. Wrong file permissions on SSH keys
+	echo -e "${GREEN}SSH permissions${NC}"
+	if [[ -d "$HOME/.ssh" ]]; then
+		local ssh_dir_perms
+		ssh_dir_perms=$(stat -c '%a' "$HOME/.ssh")
+		if [[ "$ssh_dir_perms" != "700" ]]; then
+			warn "  ~/.ssh/ is $ssh_dir_perms (should be 700)"
+			issues=$(( issues + 1 ))
+		else
+			log "  ~/.ssh/ permissions: OK (700)"
+		fi
+		for f in "$HOME/.ssh"/id_*; do
+			[[ -f "$f" && "$f" != *.pub ]] || continue
+			local perms
+			perms=$(stat -c '%a' "$f")
+			if [[ "$perms" != "600" ]]; then
+				warn "  $(basename "$f") is $perms (should be 600)"
+				issues=$(( issues + 1 ))
+			fi
+		done
+	else
+		warn "  no ~/.ssh/ directory"
+	fi
+	echo ""
+
+	# 3. Missing dependencies
+	echo -e "${GREEN}Dependencies${NC}"
+	local deps=(git rsync age gum jq)
+	for dep in "${deps[@]}"; do
+		if command -v "$dep" &>/dev/null; then
+			log "  $dep: $(command -v "$dep")"
+		else
+			warn "  $dep: not installed"
+			issues=$(( issues + 1 ))
+		fi
+	done
+	echo ""
+
+	# 4. Config drift (repo vs live)
+	echo -e "${GREEN}Config drift${NC}"
+	local drift=0
+	for dir in "$DEV_ENV"/env/.config/*/; do
+		[[ -d "$dir" ]] || continue
+		local name
+		name=$(basename "$dir")
+		local live="$XDG_CONFIG_HOME/$name"
+		if [[ ! -d "$live" ]]; then
+			warn "  $name: not deployed"
+			drift=$(( drift + 1 ))
+		elif ! diff -rq "$dir" "$live" &>/dev/null 2>&1; then
+			warn "  $name: drifted"
+			drift=$(( drift + 1 ))
+		fi
+	done
+	for dotfile in "$DEV_ENV"/env/.*; do
+		[[ -f "$dotfile" ]] || continue
+		local name
+		name=$(basename "$dotfile")
+		[[ "$name" == "." || "$name" == ".." ]] && continue
+		if [[ ! -f "$HOME/$name" ]]; then
+			warn "  $name: not deployed"
+			drift=$(( drift + 1 ))
+		elif ! diff -q "$dotfile" "$HOME/$name" &>/dev/null; then
+			warn "  $name: drifted"
+			drift=$(( drift + 1 ))
+		fi
+	done
+	if [[ $drift -eq 0 ]]; then
+		log "  all configs in sync"
+	else
+		issues=$(( issues + drift ))
+	fi
+	echo ""
+
+	# 5. Stale backups
+	echo -e "${GREEN}Backup freshness${NC}"
+	source "$DEV_ENV/lib/config.sh" 2>/dev/null || true
+	local backup_msg
+	backup_msg=$(check_backup_age 7 2>/dev/null)
+	if [[ -n "$backup_msg" ]]; then
+		warn "  $backup_msg"
+		issues=$(( issues + 1 ))
+	else
+		if [[ -f "${TIMESTAMP_FILE:-}" ]]; then
+			local last now days
+			last=$(cat "$TIMESTAMP_FILE")
+			now=$(date +%s)
+			days=$(( (now - last) / 86400 ))
+			log "  last backup: ${days}d ago"
+		else
+			warn "  no backup recorded"
+			issues=$(( issues + 1 ))
+		fi
+	fi
+	echo ""
+
+	# 6. Dev repo status
+	echo -e "${GREEN}Dev repo${NC}"
+	local git_changes
+	git_changes=$(cd "$DEV_ENV" && git status --porcelain 2>/dev/null | wc -l)
+	if [[ "$git_changes" -eq 0 ]]; then
+		log "  clean"
+	else
+		warn "  $git_changes uncommitted change(s)"
+		issues=$(( issues + 1 ))
+	fi
+	echo ""
+
+	# Summary
+	echo -e "${GREEN}$(printf '%.0s─' {1..45})${NC}"
+	if [[ $issues -eq 0 ]]; then
+		log "all healthy — no issues found"
+	else
+		warn "$issues issue(s) found"
+	fi
 }
 
 # -----------------------------------------------------------------------
@@ -364,5 +743,14 @@ case "$mode" in
 		;;
 	update)
 		do_update
+		;;
+	diff)
+		do_diff
+		;;
+	compare)
+		do_compare
+		;;
+	doctor)
+		do_doctor
 		;;
 esac

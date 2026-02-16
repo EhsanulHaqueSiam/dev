@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-yay -S --noconfirm --needed neovim
+if command -v pacman &>/dev/null; then
+	sudo pacman -S --noconfirm --needed neovim
 
-# Dependencies for clipboard, treesitter compilation, and mason
-yay -S --noconfirm --needed xclip wl-clipboard gcc make unzip
+	# Dependencies for clipboard, treesitter compilation, and mason
+	sudo pacman -S --noconfirm --needed xclip wl-clipboard gcc make unzip
+else
+	echo "[neovim] Arch Linux required"; exit 1
+fi

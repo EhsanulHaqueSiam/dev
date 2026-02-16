@@ -72,36 +72,49 @@ warn() { echo -e "${YELLOW}[backup]${NC} $1"; }
 err()  { echo -e "${RED}[backup]${NC} $1"; }
 info() { echo -e "${BLUE}[backup]${NC} $1"; }
 
+notify() {
+	local title="$1" body="${2:-}"
+	if command -v notify-send &>/dev/null; then
+		notify-send -a "dev-backup" "$title" "$body" 2>/dev/null || true
+	fi
+}
+
 # -----------------------------------------------------------------------
 # Parse arguments
 # -----------------------------------------------------------------------
 dry_run=0
+verify_mode=0
+sync_mode=0
 keep=$DEFAULT_KEEP
 jobs=$DEFAULT_JOBS
 targets=()
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-		--dry)   dry_run=1 ;;
-		--keep)  shift; keep="${1:?--keep requires a number}" ;;
-		--jobs)  shift; jobs="${1:?--jobs requires a number}" ;;
-		--ssd)   shift; SSD="${1:?--ssd requires a path}"; BACKUP_ROOT="$SSD/backups" ;;
-		*)       targets+=("$1") ;;
+		--dry)    dry_run=1 ;;
+		--verify) verify_mode=1 ;;
+		--sync)   sync_mode=1 ;;
+		--keep)   shift; keep="${1:?--keep requires a number}" ;;
+		--jobs)   shift; jobs="${1:?--jobs requires a number}" ;;
+		--ssd)    shift; SSD="${1:?--ssd requires a path}"; BACKUP_ROOT="$SSD/backups" ;;
+		*)        targets+=("$1") ;;
 	esac
 	shift
 done
 
 # -----------------------------------------------------------------------
+# Check dependencies
+# -----------------------------------------------------------------------
+command -v rsync &>/dev/null || { err "rsync required"; exit 1; }
+
+# -----------------------------------------------------------------------
 # Check SSD
 # -----------------------------------------------------------------------
 if ! mountpoint -q "$SSD" 2>/dev/null; then
-	err "SSD not mounted at $SSD"
-	exit 1
+	try_mount_ssd || { err "SSD not mounted at $SSD (and auto-mount failed)"; exit 1; }
 fi
 
-fs_info=$(df -Th "$SSD" | awk 'NR==2 {printf "%s | %s/%s used | %s free", $2, $3, $2, $5}')
-log "SSD: $fs_info"
-log "workers: $jobs | retention: $keep"
+fs_info=$(df -Th "$SSD" | awk 'NR==2 {printf "%s | %s/%s used | %s free", $2, $4, $3, $5}')
 
 # -----------------------------------------------------------------------
 # Build rsync exclude flags
@@ -110,6 +123,159 @@ exclude_flags=()
 for pat in "${EXCLUDES[@]}"; do
 	exclude_flags+=(--exclude "$pat")
 done
+
+# -----------------------------------------------------------------------
+# Verify mode: compare latest backup against live source
+# -----------------------------------------------------------------------
+if [[ $verify_mode -eq 1 ]]; then
+	latest=$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+	if [[ -z "$latest" ]]; then
+		err "no backup found to verify"
+		exit 1
+	fi
+
+	log "verifying backup: $(basename "$latest")"
+	log "SSD: $fs_info"
+	echo ""
+
+	verify_failed=0
+	for src in "${SOURCES[@]}"; do
+		src_path="$HOME/$src"
+		backup_path="$latest/$src"
+
+		if [[ ! -d "$src_path" ]]; then
+			warn "source missing: $src_path (skipped)"
+			continue
+		fi
+		if [[ ! -d "$backup_path" ]]; then
+			err "not in backup: $src"
+			verify_failed=1
+			continue
+		fi
+
+		# Count files (excluding common ignores)
+		exclude_args=()
+		for pat in "${EXCLUDES[@]}"; do
+			exclude_args+=(--exclude "$pat")
+		done
+
+		local_count=$(rsync "${RSYNC_FLAGS[@]}" "${exclude_args[@]}" --dry-run --stats \
+			"$src_path/" "$backup_path/" 2>/dev/null | grep "^Number of regular files transferred:" | awk '{print $NF}' || echo "0")
+		[[ -z "$local_count" ]] && local_count=0
+
+		local_size=$(du -sh "$src_path" --exclude=.git --exclude=node_modules --exclude=__pycache__ \
+			--exclude=.venv --exclude=venv --exclude=.conda --exclude=target \
+			--exclude=dist --exclude=build --exclude=.cache --exclude=.next \
+			--exclude=wandb --exclude=.uv-cache 2>/dev/null | cut -f1)
+		backup_size=$(du -sh "$backup_path" 2>/dev/null | cut -f1)
+
+		if [[ "$local_count" -le 5 ]]; then
+			log "$src: OK  (source: $local_size, backup: $backup_size, $local_count file(s) differ)"
+		else
+			warn "$src: STALE  (source: $local_size, backup: $backup_size, $local_count file(s) differ)"
+			verify_failed=1
+		fi
+	done
+
+	echo ""
+	if [[ $verify_failed -eq 0 ]]; then
+		log "backup verified — all sources match"
+	else
+		warn "backup has drifted — consider running a new backup"
+	fi
+	exit $verify_failed
+fi
+
+# -----------------------------------------------------------------------
+# Sync mode: incremental update to latest backup
+# -----------------------------------------------------------------------
+if [[ $sync_mode -eq 1 ]]; then
+	latest=$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+	if [[ -z "$latest" ]]; then
+		err "no existing backup to sync — run a full backup first"
+		exit 1
+	fi
+
+	log "SSD: $fs_info"
+	log "sync mode: updating $(basename "$latest") in-place"
+
+	if [[ ${#targets[@]} -eq 0 ]]; then
+		sources=("${SOURCES[@]}")
+	else
+		sources=("${targets[@]}")
+	fi
+
+	start_time=$SECONDS
+	sync_failed=0
+
+	echo ""
+	if [[ $dry_run -eq 1 ]]; then
+		warn "=== DRY RUN — no changes will be made ==="
+		echo ""
+	fi
+
+	for src in "${sources[@]}"; do
+		src_path="$HOME/$src"
+		if [[ ! -d "$src_path" ]]; then
+			err "source not found: $src_path"
+			sync_failed=1
+			continue
+		fi
+
+		dest="$latest/$src"
+		mkdir -p "$dest"
+
+		if [[ $dry_run -eq 1 ]]; then
+			info "syncing $src (dry run)..."
+			rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" --dry-run --stats \
+				"$src_path/" "$dest/" 2>&1 | grep -E "^(Number|Total)" | head -5
+			echo ""
+		else
+			info "syncing $src..."
+			rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" --stats \
+				"$src_path/" "$dest/" 2>&1 | grep -E "^(Number|Total)" | head -5 || true
+			if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+				sync_failed=1
+			fi
+			echo ""
+		fi
+	done
+
+	elapsed=$(( SECONDS - start_time ))
+
+	echo ""
+	echo -e "${GREEN}================================${NC}"
+	log "sync complete"
+	echo -e "${GREEN}================================${NC}"
+
+	if [[ $dry_run -eq 0 ]]; then
+		log "time: ${elapsed}s"
+		log "target: $(basename "$latest")"
+		record_backup_time
+
+		if [[ $sync_failed -ne 0 ]]; then
+			warn "some items had sync errors"
+		fi
+	else
+		warn "dry run — nothing was changed"
+	fi
+
+	echo ""
+	free_after=$(df -h "$SSD" | awk 'NR==2 {print $4}')
+	log "SSD free space: $free_after"
+
+	if [[ $dry_run -eq 0 ]]; then
+		if [[ $sync_failed -eq 0 ]]; then
+			notify "Backup sync complete" "Synced in ${elapsed}s | Free: $free_after"
+		else
+			notify "Backup sync had errors" "Completed in ${elapsed}s with errors"
+		fi
+	fi
+	exit 0
+fi
+
+log "SSD: $fs_info"
+log "workers: $jobs | retention: $keep"
 
 # -----------------------------------------------------------------------
 # Determine mode: full backup vs subfolder update
@@ -239,12 +405,8 @@ for src in "${sources[@]}"; do
 	# ---------------------------------------------------------------
 	if [[ $dry_run -eq 1 ]]; then
 		info "syncing $src (dry run)..."
-		mkdir -p "$dest"
-		rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" --dry-run -v \
-			"$src_path/" "$dest/" 2>&1 | tail -5
-		if [[ $subfolder_mode -eq 0 ]]; then
-			rm -rf "$backup_dir" 2>/dev/null || true
-		fi
+		rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" --dry-run --stats \
+			"$src_path/" "$dest/" 2>&1 | grep -E "^(Number|Total)" | head -5
 		log "done: $src (dry run)"
 		echo ""
 		continue
@@ -298,7 +460,10 @@ if [[ $dry_run -eq 0 ]]; then
 		echo -e "  ${BOLD}$(basename "$b")${NC}  ${size}"
 	done
 
-	if [[ $sync_failed -ne 0 ]]; then
+	# Record successful backup time
+	if [[ $sync_failed -eq 0 ]]; then
+		record_backup_time
+	else
 		echo ""
 		warn "some items had sync errors (non-fatal)"
 	fi
@@ -309,3 +474,11 @@ fi
 echo ""
 free_after=$(df -h "$SSD" | awk 'NR==2 {print $4}')
 log "SSD free space: $free_after"
+
+if [[ $dry_run -eq 0 ]]; then
+	if [[ $sync_failed -eq 0 ]]; then
+		notify "Backup complete" "${backup_size} in ${elapsed}s | Free: $free_after"
+	else
+		notify "Backup had errors" "Completed in ${elapsed}s with errors"
+	fi
+fi

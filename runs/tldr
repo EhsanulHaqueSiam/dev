@@ -1,3 +1,8 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-yay -S --noconfirm --needed tldr
+if command -v pacman &>/dev/null; then
+	sudo pacman -S --noconfirm --needed tldr
+else
+	echo "[tldr] Arch Linux required"; exit 1
+fi

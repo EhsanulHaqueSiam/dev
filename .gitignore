@@ -9,6 +9,9 @@ env/.config/mpv/scripts/uosc/bin/
 env/.config/mpv/fonts/*.ttf
 env/.config/mpv/fonts/*.otf
 
+# Claude Code (has API keys — use ./secrets claude backup instead)
+env/.claude.json
+
 # Editor
 *.swp
 *.swo

@@ -45,12 +45,12 @@ if [[ $env_only == "0" ]]; then
 	log "running installers..."
 	echo ""
 
-	runs_dir=$(find "$script_dir/runs" -mindepth 1 -maxdepth 1 -executable | sort)
+	mapfile -t runs_list < <(find "$script_dir/runs" -mindepth 1 -maxdepth 1 -executable | sort)
 
-	for s in $runs_dir; do
+	for s in "${runs_list[@]}"; do
 		name=$(basename "$s")
 
-		if [[ -n "$grep_filter" ]] && ! echo "$name" | grep -q "$grep_filter"; then
+		if [[ -n "$grep_filter" ]] && [[ "$name" != "$grep_filter" ]]; then
 			skipped+=("$name")
 			continue
 		fi

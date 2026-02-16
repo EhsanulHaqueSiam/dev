@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-yay -S --noconfirm --needed eza
+if command -v pacman &>/dev/null; then
+	sudo pacman -S --noconfirm --needed eza
+else
+	echo "[eza] Arch Linux required"; exit 1
+fi

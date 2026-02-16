@@ -35,6 +35,7 @@ info() { echo -e "${BLUE}[restore]${NC} $1"; }
 # Parse arguments
 # -----------------------------------------------------------------------
 dry_run=0
+pick_mode=0
 from_backup=""
 jobs=$DEFAULT_JOBS
 targets=()
@@ -42,6 +43,7 @@ targets=()
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--dry)   dry_run=1 ;;
+		--pick)  pick_mode=1 ;;
 		--from)  shift; from_backup="${1:?--from requires a backup name}" ;;
 		--jobs)  shift; jobs="${1:?--jobs requires a number}" ;;
 		--ssd)   shift; SSD="${1:?--ssd requires a path}"; BACKUP_ROOT="$SSD/backups" ;;
@@ -51,11 +53,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 # -----------------------------------------------------------------------
+# Check dependencies
+# -----------------------------------------------------------------------
+command -v rsync &>/dev/null || { err "rsync required"; exit 1; }
+
+# -----------------------------------------------------------------------
 # Check SSD
 # -----------------------------------------------------------------------
 if ! mountpoint -q "$SSD" 2>/dev/null; then
-	err "SSD not mounted at $SSD"
-	exit 1
+	try_mount_ssd || { err "SSD not mounted at $SSD (and auto-mount failed)"; exit 1; }
 fi
 
 # -----------------------------------------------------------------------
@@ -104,6 +110,85 @@ fi
 backup_name=$(basename "$backup_dir")
 backup_size=$(du -sh "$backup_dir" 2>/dev/null | cut -f1)
 log "restoring from: $backup_name ($backup_size)"
+
+# -----------------------------------------------------------------------
+# Pick mode: browse and select individual files
+# -----------------------------------------------------------------------
+if [[ $pick_mode -eq 1 ]]; then
+	if ! command -v gum &>/dev/null; then
+		err "--pick requires gum (charmbracelet/gum)"
+		exit 1
+	fi
+
+	# Determine search root
+	search_root="$backup_dir"
+	if [[ ${#targets[@]} -gt 0 ]]; then
+		search_root="$backup_dir/${targets[0]}"
+		if [[ ! -d "$search_root" ]]; then
+			err "not found in backup: ${targets[0]}"
+			exit 1
+		fi
+	fi
+
+	# Collect all files in the backup
+	mapfile -t all_files < <(find "$search_root" -type f 2>/dev/null | sort | while read -r f; do
+		echo "${f#$backup_dir/}"
+	done)
+
+	if [[ ${#all_files[@]} -eq 0 ]]; then
+		warn "no files found in backup"
+		exit 0
+	fi
+
+	log "${#all_files[@]} files in backup"
+	echo ""
+
+	# Let user pick files
+	selected=$(printf '%s\n' "${all_files[@]}" | gum filter \
+		--no-limit \
+		--height 25 \
+		--header "Search and select files to restore (tab to toggle, enter to confirm):" \
+		--placeholder "type to filter..." \
+	) || { log "cancelled"; exit 0; }
+
+	if [[ -z "$selected" ]]; then
+		warn "nothing selected"
+		exit 0
+	fi
+
+	file_count=$(echo "$selected" | wc -l)
+	echo ""
+	log "$file_count file(s) selected:"
+	echo "$selected" | while read -r f; do
+		info "  $f"
+	done
+
+	if [[ $dry_run -eq 1 ]]; then
+		echo ""
+		warn "DRY RUN — would restore $file_count file(s)"
+		exit 0
+	fi
+
+	echo ""
+	echo -n "type 'yes' to restore: "
+	read -r confirm
+	[[ "$confirm" != "yes" ]] && { log "aborted"; exit 0; }
+
+	echo ""
+	restored=0
+	while read -r relpath; do
+		src="$backup_dir/$relpath"
+		dest="$HOME/$relpath"
+		mkdir -p "$(dirname "$dest")"
+		cp "$src" "$dest"
+		info "  restored: $relpath"
+		restored=$(( restored + 1 ))
+	done <<< "$selected"
+
+	echo ""
+	log "$restored file(s) restored"
+	exit 0
+fi
 
 # -----------------------------------------------------------------------
 # Confirm with user (skip in dry-run)

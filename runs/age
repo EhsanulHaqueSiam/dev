@@ -2,4 +2,8 @@
 set -euo pipefail
 
 # age — modern encryption tool (used for SSH key backup)
-yay -S --noconfirm --needed age
+if command -v pacman &>/dev/null; then
+	sudo pacman -S --noconfirm --needed age
+else
+	echo "[age] Arch Linux required"; exit 1
+fi

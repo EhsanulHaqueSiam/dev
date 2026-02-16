@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-sudo pacman -S --noconfirm --needed tmux
+if command -v pacman &>/dev/null; then
+	sudo pacman -S --noconfirm --needed tmux
+fi
 
 # Install TPM (idempotent)
 if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then

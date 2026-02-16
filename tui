@@ -114,18 +114,26 @@ main_menu() {
 		local ssd_info
 		ssd_info=$(ssd_status)
 		info "SSD: $ssd_info"
+
+		# Warn if backup is stale
+		local backup_warning
+		backup_warning=$(check_backup_age 7 2>/dev/null)
+		if [[ -n "$backup_warning" ]]; then
+			warn "$backup_warning"
+		fi
 		echo ""
 
 		local choice
 		choice=$(gum choose \
 			--header "What would you like to do?" \
-			--height 12 \
+			--height 13 \
 			"Install Tools" \
 			"Deploy Configs" \
 			"Backup to SSD" \
 			"Restore from SSD" \
 			"Secrets" \
 			"Status" \
+			"Live Dashboard" \
 			"Settings" \
 			"Quit" \
 		) || continue
@@ -137,6 +145,7 @@ main_menu() {
 			"Restore from SSD") menu_restore ;;
 			"Secrets")        menu_secrets ;;
 			"Status")         menu_status ;;
+			"Live Dashboard") live_dashboard 5 ;;
 			"Settings")       menu_settings ;;
 			"Quit")           return 0 ;;
 		esac
@@ -513,10 +522,11 @@ menu_deploy() {
 		local choice
 		choice=$(gum choose \
 			--header "Select mode:" \
-			--height 10 \
+			--height 11 \
 			"Deploy All Configs" \
 			"Deploy Missing Only" \
 			"Select Configs" \
+			"Compare Configs" \
 			"Capture Config" \
 			"Update All (re-capture)" \
 			"View Status" \
@@ -538,6 +548,11 @@ menu_deploy() {
 				;;
 			"Select Configs")
 				do_deploy_select "${configs[@]}"
+				;;
+			"Compare Configs")
+				echo ""
+				"$DEV_ENV/dev-env" compare
+				pause
 				;;
 			"Capture Config")
 				local cap_path
@@ -766,19 +781,35 @@ menu_backup() {
 
 		echo ""
 
+		# Show active SSD if multiple configured
+		if [[ ${#SSD_LIST[@]} -gt 1 ]]; then
+			gum style --foreground 240 "  Target: $SSD"
+		fi
+
 		local choice
 		choice=$(gum choose \
 			--header "Backup mode:" \
-			--height 8 \
+			--height 11 \
+			"Quick Sync (incremental)" \
 			"Full Backup (new snapshot)" \
 			"Select Projects" \
 			"Update Subfolder (in latest)" \
+			"Verify Latest Backup" \
+			"Switch Target SSD" \
 			"Dry Run (preview)" \
 			"Configure" \
 			"Back" \
 		) || return 0
 
 		case "$choice" in
+			"Quick Sync (incremental)")
+				echo ""
+				if gum confirm "Sync changed files to latest backup?"; then
+					echo ""
+					"$DEV_ENV/backup" --sync
+				fi
+				pause
+				;;
 			"Full Backup (new snapshot)")
 				do_backup_full
 				;;
@@ -787,6 +818,14 @@ menu_backup() {
 				;;
 			"Update Subfolder (in latest)")
 				do_backup_subfolder
+				;;
+			"Verify Latest Backup")
+				echo ""
+				"$DEV_ENV/backup" --verify
+				pause
+				;;
+			"Switch Target SSD")
+				do_switch_backup_ssd
 				;;
 			"Dry Run (preview)")
 				echo ""
@@ -799,6 +838,38 @@ menu_backup() {
 			"Back") return 0 ;;
 		esac
 	done
+}
+
+do_switch_backup_ssd() {
+	if [[ ${#SSD_LIST[@]} -le 1 ]]; then
+		warn "Only one SSD configured — add more in Settings > Manage SSDs"
+		pause
+		return
+	fi
+	local labels=()
+	for p in "${SSD_LIST[@]}"; do
+		local label="$p"
+		if mountpoint -q "$p" 2>/dev/null; then
+			local free
+			free=$(df -h "$p" | awk 'NR==2 {print $4}')
+			label="$p  (mounted, ${free} free)"
+		else
+			label="$p  (not mounted)"
+		fi
+		[[ "$p" == "$SSD" ]] && label="$label  [active]"
+		labels+=("$label")
+	done
+	echo ""
+	local selected
+	selected=$(printf '%s\n' "${labels[@]}" | gum choose \
+		--header "Select target SSD:" \
+		--height 10 \
+	) || return 0
+	local new_ssd
+	new_ssd=$(echo "$selected" | awk '{print $1}')
+	switch_ssd "$new_ssd"
+	success "Active SSD: $SSD"
+	pause
 }
 
 do_backup_full() {
@@ -982,10 +1053,11 @@ menu_restore() {
 		local choice
 		choice=$(gum choose \
 			--header "Restore mode:" \
-			--height 8 \
+			--height 9 \
 			"Restore All from Latest" \
 			"Restore Specific Projects" \
 			"Restore Subfolder" \
+			"Pick Individual Files" \
 			"Choose Backup Version" \
 			"Dry Run (preview)" \
 			"Back" \
@@ -1000,6 +1072,11 @@ menu_restore() {
 				;;
 			"Restore Subfolder")
 				do_restore_subfolder
+				;;
+			"Pick Individual Files")
+				echo ""
+				"$DEV_ENV/restore" --pick
+				pause
 				;;
 			"Choose Backup Version")
 				do_restore_from_specific
@@ -1267,12 +1344,23 @@ menu_secrets() {
 
 		echo ""
 
+		# Claude config status
+		if [[ -f "$HOME/.claude.json" ]] && command -v jq &>/dev/null; then
+			local mcp_count
+			mcp_count=$(jq '.mcpServers | length' "$HOME/.claude.json" 2>/dev/null || echo "0")
+			info "Claude: $mcp_count MCP server(s)"
+		fi
+
+		echo ""
+
 		local choice
 		choice=$(gum choose \
 			--header "Secrets management:" \
-			--height 9 \
+			--height 11 \
 			"SSH Keys" \
 			"Env Files" \
+			"Claude Config" \
+			"Health Check" \
 			"List All Secrets" \
 			"View Local SSH Keys" \
 			"Back" \
@@ -1281,6 +1369,12 @@ menu_secrets() {
 		case "$choice" in
 			"SSH Keys")        menu_secrets_ssh ;;
 			"Env Files")       menu_secrets_env ;;
+			"Claude Config")   menu_secrets_claude ;;
+			"Health Check")
+				echo ""
+				"$DEV_ENV/secrets" --health
+				pause
+				;;
 			"List All Secrets")
 				echo ""
 				"$DEV_ENV/secrets" --list
@@ -1778,6 +1872,101 @@ menu_secrets_env() {
 	done
 }
 
+menu_secrets_claude() {
+	while true; do
+		clear
+		header "Claude Config"
+
+		# Show current status
+		if [[ -f "$HOME/.claude.json" ]] && command -v jq &>/dev/null; then
+			local mcp_count
+			mcp_count=$(jq '.mcpServers | length' "$HOME/.claude.json" 2>/dev/null || echo "0")
+			info "MCP servers: $mcp_count"
+		else
+			warn "No .claude.json found"
+		fi
+
+		if [[ -f "$HOME/.claude/settings.json" ]] && command -v jq &>/dev/null; then
+			local plugin_count
+			plugin_count=$(jq '.enabledPlugins | length' "$HOME/.claude/settings.json" 2>/dev/null || echo "0")
+			info "Plugins: $plugin_count"
+		fi
+
+		if check_ssd && [[ -d "$SSD/claude-config" ]]; then
+			local claude_count
+			claude_count=$(find "$SSD/claude-config" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+			info "SSD: $claude_count age-encrypted backup(s)"
+		fi
+
+		if command -v bw &>/dev/null; then
+			info "Bitwarden: available"
+		fi
+
+		echo ""
+
+		local choice
+		choice=$(gum choose \
+			--header "Claude config operations:" \
+			--height 10 \
+			"Backup to SSD (age)" \
+			"Backup to Bitwarden" \
+			"Restore from SSD (age)" \
+			"Restore from Bitwarden" \
+			"List Config Files" \
+			"Dry Run (SSD)" \
+			"Back" \
+		) || return 0
+
+		case "$choice" in
+			"Backup to SSD (age)")
+				echo ""
+				if gum confirm "Encrypt Claude configs and save to SSD?"; then
+					echo ""
+					"$DEV_ENV/secrets" claude backup
+				fi
+				pause
+				;;
+			"Backup to Bitwarden")
+				echo ""
+				if gum confirm "Store Claude configs in Bitwarden vault?"; then
+					echo ""
+					"$DEV_ENV/secrets" claude backup --bw
+				fi
+				pause
+				;;
+			"Restore from SSD (age)")
+				echo ""
+				warn "This will overwrite existing Claude config files"
+				if gum confirm "Restore Claude configs from SSD?"; then
+					echo ""
+					"$DEV_ENV/secrets" claude restore
+				fi
+				pause
+				;;
+			"Restore from Bitwarden")
+				echo ""
+				warn "This will overwrite existing Claude config files"
+				if gum confirm "Restore Claude configs from Bitwarden?"; then
+					echo ""
+					"$DEV_ENV/secrets" claude restore --bw
+				fi
+				pause
+				;;
+			"List Config Files")
+				echo ""
+				"$DEV_ENV/secrets" claude list
+				pause
+				;;
+			"Dry Run (SSD)")
+				echo ""
+				"$DEV_ENV/secrets" claude backup --dry
+				pause
+				;;
+			"Back") return 0 ;;
+		esac
+	done
+}
+
 do_manage_aliases() {
 	while true; do
 		clear
@@ -1941,13 +2130,14 @@ menu_settings() {
 		header "Settings"
 
 		info "Config file: $DEV_ENV_CONFIG_FILE"
+		info "Active SSD: $SSD"
 		echo ""
 
 		local choice
 		choice=$(gum choose \
 			--header "Settings:" \
-			--height 9 \
-			"Change SSD Path" \
+			--height 10 \
+			"Manage SSDs" \
 			"Change Projects Directory" \
 			"Change Sources" \
 			"View Config File" \
@@ -1956,15 +2146,8 @@ menu_settings() {
 		) || return 0
 
 		case "$choice" in
-			"Change SSD Path")
-				local new_val
-				new_val=$(gum input --header "SSD mount path:" --value "$SSD") || continue
-				if [[ -n "$new_val" ]]; then
-					save_config "SSD_PATH" "$new_val"
-					load_config
-					success "SSD path set to: $SSD"
-					pause
-				fi
+			"Manage SSDs")
+				menu_manage_ssds
 				;;
 			"Change Projects Directory")
 				local new_val
@@ -2014,13 +2197,122 @@ menu_settings() {
 	done
 }
 
+menu_manage_ssds() {
+	while true; do
+		clear
+		header "Manage SSDs"
+
+		# Show all SSDs with status
+		local ssd_info=()
+		while IFS='|' read -r path status; do
+			ssd_info+=("$path|$status")
+			if [[ "$status" == *"*"* ]]; then
+				info "$path  $status  (active)"
+			else
+				gum style --foreground 240 "  $path  $status"
+			fi
+		done < <(list_ssds)
+
+		echo ""
+
+		local choice
+		choice=$(gum choose \
+			--header "SSD management:" \
+			--height 8 \
+			"Switch Active SSD" \
+			"Add SSD" \
+			"Remove SSD" \
+			"Back" \
+		) || return 0
+
+		case "$choice" in
+			"Switch Active SSD")
+				if [[ ${#SSD_LIST[@]} -le 1 ]]; then
+					warn "Only one SSD configured"
+					pause
+					continue
+				fi
+				local labels=()
+				for p in "${SSD_LIST[@]}"; do
+					local label="$p"
+					if mountpoint -q "$p" 2>/dev/null; then
+						local free
+						free=$(df -h "$p" | awk 'NR==2 {print $4}')
+						label="$p  (mounted, ${free} free)"
+					else
+						label="$p  (not mounted)"
+					fi
+					[[ "$p" == "$SSD" ]] && label="$label  [active]"
+					labels+=("$label")
+				done
+				echo ""
+				local selected
+				selected=$(printf '%s\n' "${labels[@]}" | gum choose \
+					--header "Select active SSD:" \
+					--height 10 \
+				) || continue
+				local new_ssd
+				new_ssd=$(echo "$selected" | awk '{print $1}')
+				switch_ssd "$new_ssd"
+				success "Active SSD: $SSD"
+				pause
+				;;
+			"Add SSD")
+				local new_path
+				new_path=$(gum input \
+					--header "New SSD mount path:" \
+					--placeholder "/run/media/$USER/DRIVENAME" \
+				) || continue
+				if [[ -z "$new_path" ]]; then
+					warn "Empty path"
+					pause
+					continue
+				fi
+				add_ssd "$new_path"
+				success "Added: $new_path"
+				if ! mountpoint -q "$new_path" 2>/dev/null; then
+					warn "Note: $new_path is not currently mounted"
+				fi
+				pause
+				;;
+			"Remove SSD")
+				if [[ ${#SSD_LIST[@]} -le 1 ]]; then
+					error "Can't remove the last SSD"
+					pause
+					continue
+				fi
+				local labels=()
+				for p in "${SSD_LIST[@]}"; do
+					local label="$p"
+					[[ "$p" == "$SSD" ]] && label="$p  [active]"
+					labels+=("$label")
+				done
+				echo ""
+				local selected
+				selected=$(printf '%s\n' "${labels[@]}" | gum choose \
+					--header "Select SSD to remove:" \
+					--height 10 \
+				) || continue
+				local rm_path
+				rm_path=$(echo "$selected" | awk '{print $1}')
+				if gum confirm "Remove $rm_path from SSD list?"; then
+					remove_ssd "$rm_path"
+					success "Removed: $rm_path"
+					if [[ "$rm_path" == "$SSD" ]]; then
+						info "Active SSD switched to: $SSD"
+					fi
+				fi
+				pause
+				;;
+			"Back") return 0 ;;
+		esac
+	done
+}
+
 # -----------------------------------------------------------------------
 # Status
 # -----------------------------------------------------------------------
-menu_status() {
-	clear
-	header "System Status"
-
+render_status() {
 	# SSD
 	divider
 	gum style --foreground 212 --bold "  SSD"
@@ -2031,97 +2323,220 @@ menu_status() {
 		used=$(df -h "$SSD" | awk 'NR==2 {print $3}')
 		free=$(df -h "$SSD" | awk 'NR==2 {print $4}')
 		pct=$(df "$SSD" | awk 'NR==2 {print $5}')
-		info "Mount:       $SSD"
-		info "Filesystem:  $fs"
-		info "Size:        $total"
-		info "Used:        $used ($pct)"
-		info "Free:        $free"
+		info "Mount: $SSD  ($fs)  ${used}/${total} (${pct})  ${free} free"
 	else
 		error "Not mounted"
 	fi
 
 	echo ""
 
-	# Backups
+	# Backup age
 	divider
 	gum style --foreground 212 --bold "  Backups"
+	local backup_msg
+	backup_msg=$(check_backup_age 7)
+	if [[ -n "$backup_msg" ]]; then
+		warn "$backup_msg"
+	elif [[ -f "$TIMESTAMP_FILE" ]]; then
+		local last now days_ago
+		last=$(cat "$TIMESTAMP_FILE")
+		now=$(date +%s)
+		days_ago=$(( (now - last) / 86400 ))
+		success "last backup: ${days_ago}d ago"
+	else
+		warn "no backup recorded"
+	fi
+
 	if mountpoint -q "$SSD" 2>/dev/null; then
 		local backups
 		mapfile -t backups < <(backup_list)
 		if [[ ${#backups[@]} -gt 0 ]]; then
-			info "Count: ${#backups[@]}"
+			info "${#backups[@]} snapshot(s) on SSD"
 			for b in "${backups[@]}"; do
-				local size contents
+				local size
 				size=$(du -sh "$b" 2>/dev/null | cut -f1)
-				contents=$(ls -1 "$b" 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
-				info "  $(basename "$b")  $size  [$contents]"
+				gum style --foreground 240 "    $(basename "$b")  $size"
 			done
 		else
-			warn "No backups found"
+			warn "no backups on SSD"
 		fi
-	else
-		warn "SSD not mounted"
 	fi
 
 	echo ""
 
-	# System
+	# Secrets freshness
 	divider
-	gum style --foreground 212 --bold "  System"
-	info "CPU:    $(lscpu | grep 'Model name' | sed 's/.*: *//')"
-	info "Cores:  $(nproc) threads"
-	info "rsync:  $(rsync --version | head -1 | awk '{print $3}')"
-	info "gum:    $(gum --version 2>&1 | awk '{print $NF}')"
+	gum style --foreground 212 --bold "  Secrets"
+
+	# SSH
+	local ssh_key_count=0
+	if [[ -d "$HOME/.ssh" ]]; then
+		for f in "$HOME/.ssh"/id_*; do
+			[[ -f "$f" && "$f" != *.pub ]] && ssh_key_count=$(( ssh_key_count + 1 ))
+		done
+	fi
+	if mountpoint -q "$SSD" 2>/dev/null && [[ -d "$SSH_BACKUP_DIR" ]]; then
+		local ssh_bk
+		ssh_bk=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+		if [[ "$ssh_bk" -gt 0 ]]; then
+			local latest_ssh ssh_age
+			latest_ssh=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | sort | tail -1)
+			ssh_age=$(( ( $(date +%s) - $(stat -c %Y "$latest_ssh") ) / 86400 ))
+			if [[ $ssh_age -gt 30 ]]; then
+				warn "SSH: $ssh_key_count key(s), $ssh_bk backup(s) — ${ssh_age}d old"
+			else
+				success "SSH: $ssh_key_count key(s), $ssh_bk backup(s) — ${ssh_age}d old"
+			fi
+		else
+			warn "SSH: $ssh_key_count key(s), no backups"
+		fi
+	else
+		info "SSH: $ssh_key_count key(s)"
+	fi
+
+	# Env
+	local env_count=0
+	while read -r f; do
+		[[ -f "$f" ]] && env_count=$(( env_count + 1 ))
+	done < <(find "$PROJECTS_DIR" -maxdepth 4 \
+		\( -name ".env" -o -name ".env.local" -o -name ".env.production" -o -name ".env.development" \) \
+		2>/dev/null | grep -v node_modules | grep -v .git/ | grep -v __pycache__ | grep -v .venv | grep -v .conda)
+
+	if mountpoint -q "$SSD" 2>/dev/null && [[ -d "$ENV_BACKUP_DIR" ]]; then
+		local env_bk
+		env_bk=$(find "$ENV_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+		if [[ "$env_bk" -gt 0 ]]; then
+			local latest_env env_age
+			latest_env=$(find "$ENV_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | sort | tail -1)
+			env_age=$(( ( $(date +%s) - $(stat -c %Y "$latest_env") ) / 86400 ))
+			if [[ $env_age -gt 14 ]]; then
+				warn "Env: $env_count file(s), $env_bk backup(s) — ${env_age}d old"
+			else
+				success "Env: $env_count file(s), $env_bk backup(s) — ${env_age}d old"
+			fi
+		else
+			if [[ $env_count -gt 0 ]]; then
+				warn "Env: $env_count file(s), no backups!"
+			else
+				info "Env: no .env files"
+			fi
+		fi
+	else
+		info "Env: $env_count file(s)"
+	fi
+
+	# Claude
+	if [[ -f "$HOME/.claude.json" ]] && command -v jq &>/dev/null; then
+		local mcp_count
+		mcp_count=$(jq '.mcpServers | length' "$HOME/.claude.json" 2>/dev/null || echo "0")
+		if mountpoint -q "$SSD" 2>/dev/null && [[ -d "$SSD/claude-config" ]]; then
+			local claude_bk
+			claude_bk=$(find "$SSD/claude-config" -name "*.tar.age" -type f 2>/dev/null | wc -l)
+			if [[ "$claude_bk" -gt 0 ]]; then
+				local latest_cl cl_age
+				latest_cl=$(find "$SSD/claude-config" -name "*.tar.age" -type f 2>/dev/null | sort | tail -1)
+				cl_age=$(( ( $(date +%s) - $(stat -c %Y "$latest_cl") ) / 86400 ))
+				success "Claude: $mcp_count MCP(s), $claude_bk backup(s) — ${cl_age}d old"
+			else
+				warn "Claude: $mcp_count MCP(s), no backups"
+			fi
+		else
+			info "Claude: $mcp_count MCP server(s)"
+		fi
+	fi
+
+	echo ""
+
+	# Config drift
+	divider
+	gum style --foreground 212 --bold "  Config Drift"
+	local drift_count=0
+	local xdg="${XDG_CONFIG_HOME:-$HOME/.config}"
+	while IFS='|' read -r type name src dest status; do
+		if [[ "$status" == "deployed" ]]; then
+			if [[ -d "$src" && -d "$dest" ]]; then
+				local diff_out
+				diff_out=$(diff -rq "$src" "$dest" 2>/dev/null | head -3 || true)
+				if [[ -n "$diff_out" ]]; then
+					warn "  $name: drifted"
+					drift_count=$(( drift_count + 1 ))
+				fi
+			elif [[ -f "$src" && -f "$dest" ]]; then
+				if ! diff -q "$src" "$dest" &>/dev/null; then
+					warn "  $name: drifted"
+					drift_count=$(( drift_count + 1 ))
+				fi
+			fi
+		fi
+	done < <(gather_configs)
+
+	if [[ $drift_count -eq 0 ]]; then
+		success "all configs in sync"
+	else
+		warn "$drift_count config(s) drifted — run: dev-env update"
+	fi
 
 	echo ""
 
 	# Dev repo
 	divider
 	gum style --foreground 212 --bold "  Dev Repo"
-	info "Path: $DEV_ENV"
-	local git_status
-	git_status=$(cd "$DEV_ENV" && git status --porcelain 2>/dev/null | wc -l)
-	if [[ "$git_status" -eq 0 ]]; then
-		success "Clean (no uncommitted changes)"
-	else
-		warn "$git_status uncommitted change(s)"
-	fi
+	local git_changes
+	git_changes=$(cd "$DEV_ENV" && git status --porcelain 2>/dev/null | wc -l)
 	local branch
 	branch=$(cd "$DEV_ENV" && git branch --show-current 2>/dev/null)
-	info "Branch: $branch"
-
-	echo ""
-
-	# Secrets
-	divider
-	gum style --foreground 212 --bold "  Secrets"
-	if mountpoint -q "$SSD" 2>/dev/null; then
-		local ssh_bk=0 env_bk=0
-		[[ -d "$SSH_BACKUP_DIR" ]] && ssh_bk=$(find "$SSH_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
-		[[ -d "$ENV_BACKUP_DIR" ]] && env_bk=$(find "$ENV_BACKUP_DIR" -name "*.tar.age" -type f 2>/dev/null | wc -l)
-		info "SSD SSH backups: $ssh_bk"
-		info "SSD env backups: $env_bk"
+	if [[ "$git_changes" -eq 0 ]]; then
+		success "clean ($branch)"
 	else
-		warn "SSD not mounted"
-	fi
-	if command -v bw &>/dev/null; then
-		local bw_st
-		bw_st=$(bw status 2>/dev/null | jq -r '.status' 2>/dev/null || echo "unknown")
-		info "Bitwarden: $bw_st"
-	else
-		info "Bitwarden: not installed"
+		warn "$git_changes uncommitted change(s) ($branch)"
 	fi
 
 	echo ""
 
 	# Tools
 	divider
-	gum style --foreground 212 --bold "  Installed Tools"
-	local tool_count
-	tool_count=$(find "$DEV_ENV/runs" -mindepth 1 -maxdepth 1 -executable 2>/dev/null | wc -l)
-	info "$tool_count tool scripts in runs/"
+	gum style --foreground 212 --bold "  Tools"
+	local total_tools=0 installed_tools=0
+	shopt -s nullglob
+	for s in "$DEV_ENV"/runs/*; do
+		[[ -x "$s" ]] || continue
+		total_tools=$(( total_tools + 1 ))
+		if tool_installed "$(basename "$s")"; then
+			installed_tools=$(( installed_tools + 1 ))
+		fi
+	done
+	shopt -u nullglob
+	if [[ $installed_tools -eq $total_tools ]]; then
+		success "$installed_tools/$total_tools installed"
+	else
+		warn "$installed_tools/$total_tools installed"
+	fi
+}
 
+menu_status() {
+	clear
+	header "System Status"
+	render_status
 	pause
+}
+
+live_dashboard() {
+	local interval="${1:-5}"
+	while true; do
+		clear
+		header "Live Dashboard  (refreshes every ${interval}s — press q to exit)"
+		render_status
+		gum style --foreground 240 "  $(date '+%H:%M:%S')"
+
+		# Wait for interval, break on 'q'
+		local i=0
+		while (( i < interval )); do
+			if read -rsn1 -t 1 key 2>/dev/null; then
+				[[ "$key" == "q" || "$key" == "Q" ]] && return 0
+			fi
+			i=$(( i + 1 ))
+		done
+	done
 }
 
 # -----------------------------------------------------------------------
@@ -2167,11 +2582,12 @@ first_run_wizard() {
 
 	# Save config
 	mkdir -p "$DEV_ENV_CONFIG_DIR"
-	cat > "$DEV_ENV_CONFIG_FILE" <<-EOF
-	SSD_PATH=$ssd_path
-	PROJECTS_DIR=$projects_dir
-	SOURCES=$sources
-	EOF
+	cat > "$DEV_ENV_CONFIG_FILE" <<EOF
+SSD_PATH="$ssd_path"
+SSD_PATHS="$ssd_path"
+PROJECTS_DIR="$projects_dir"
+SOURCES="$sources"
+EOF
 
 	load_config
 
@@ -2181,7 +2597,74 @@ first_run_wizard() {
 }
 
 # -----------------------------------------------------------------------
-# Entry point
+# CLI mode: ./tui --run <action>
+# -----------------------------------------------------------------------
+cli_usage() {
+	echo "Usage: ./tui [--run <action>] [--list]"
+	echo ""
+	echo "Actions:"
+	echo "  backup          full backup (new snapshot)"
+	echo "  sync            quick sync (incremental)"
+	echo "  verify          verify latest backup"
+	echo "  restore         restore from latest"
+	echo "  status          show system status"
+	echo "  dashboard       live dashboard"
+	echo "  secrets-health  secrets health check"
+	echo "  secrets-diff    secrets diff since last backup"
+	echo "  secrets-list    list all secrets"
+	echo "  deploy          deploy configs"
+	echo "  compare         compare repo vs live configs"
+	echo "  install         install all tools"
+	echo "  doctor          run dev-env doctor"
+	echo ""
+	echo "Examples:"
+	echo "  ./tui --run backup"
+	echo "  ./tui --run secrets-health"
+	echo "  ./tui --run status"
+}
+
+if [[ "${1:-}" == "--run" ]]; then
+	action="${2:-}"
+	if [[ -z "$action" ]]; then
+		cli_usage
+		exit 1
+	fi
+	case "$action" in
+		backup)         "$DEV_ENV/backup" ;;
+		sync)           "$DEV_ENV/backup" --sync ;;
+		verify)         "$DEV_ENV/backup" --verify ;;
+		restore)        "$DEV_ENV/restore" "${@:3}" ;;
+		status)         render_status ;;
+		dashboard)      live_dashboard "${3:-5}" ;;
+		secrets-health) "$DEV_ENV/secrets" --health ;;
+		secrets-diff)   "$DEV_ENV/secrets" --diff ;;
+		secrets-list)   "$DEV_ENV/secrets" --list ;;
+		deploy)         "$DEV_ENV/dev-env" ;;
+		compare)        "$DEV_ENV/dev-env" compare ;;
+		install)        "$DEV_ENV/run" "${@:3}" ;;
+		doctor)         "$DEV_ENV/dev-env" doctor ;;
+		*)
+			echo "Unknown action: $action"
+			echo ""
+			cli_usage
+			exit 1
+			;;
+	esac
+	exit 0
+fi
+
+if [[ "${1:-}" == "--list" ]]; then
+	cli_usage
+	exit 0
+fi
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	cli_usage
+	exit 0
+fi
+
+# -----------------------------------------------------------------------
+# Entry point (interactive mode)
 # -----------------------------------------------------------------------
 first_run_wizard
 main_menu

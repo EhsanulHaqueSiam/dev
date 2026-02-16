@@ -1,3 +1,8 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-yay -S --noconfirm --needed fnm
+if command -v pacman &>/dev/null; then
+	sudo pacman -S --noconfirm --needed fnm
+else
+	echo "[fnm] Arch Linux required"; exit 1
+fi

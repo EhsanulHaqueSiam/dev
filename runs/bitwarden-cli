@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-yay -S --noconfirm --needed bitwarden-cli jq
-
-# Check login status and prompt if needed
-status=$(bw status 2>/dev/null | jq -r '.status' 2>/dev/null || echo "unauthenticated")
-if [[ "$status" == "unauthenticated" ]]; then
-	echo ""
-	echo "Bitwarden CLI installed. Log in to your vault:"
-	echo ""
-	bw login
+if command -v pacman &>/dev/null; then
+	sudo pacman -S --noconfirm --needed bitwarden-cli jq
+else
+	echo "[bitwarden-cli] Arch Linux required"; exit 1
 fi
+
+echo ""
+echo "[bitwarden-cli] installed. Log in with: bw login"

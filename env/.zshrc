@@ -1,11 +1,13 @@
 # General Zsh Settings
 # --------------------
-source ~/.local/share/omarchy/default/bash/aliases
-source ~/.local/share/omarchy/default/bash/functions
-source ~/.local/share/omarchy/default/bash/prompt
-source ~/.local/share/omarchy/default/bash/envs
 
-source ~/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh
+# Source omarchy defaults if available
+[[ -f ~/.local/share/omarchy/default/bash/aliases ]] && source ~/.local/share/omarchy/default/bash/aliases
+[[ -f ~/.local/share/omarchy/default/bash/functions ]] && source ~/.local/share/omarchy/default/bash/functions
+[[ -f ~/.local/share/omarchy/default/bash/prompt ]] && source ~/.local/share/omarchy/default/bash/prompt
+[[ -f ~/.local/share/omarchy/default/bash/envs ]] && source ~/.local/share/omarchy/default/bash/envs
+
+[[ -f ~/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh ]] && source ~/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh
 
 setopt prompt_subst
 
@@ -134,7 +136,8 @@ set +h
 export OMARCHY_PATH="$HOME/.local/share/omarchy"
 
 # Tool initialization (shared across bash/zsh)
-source "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-init.sh"
+[[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-init.sh" ]] && \
+    source "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-init.sh"
 
 # Shell functions (bwu, etc.)
 [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dev-env/shell-functions.sh" ]] && \
