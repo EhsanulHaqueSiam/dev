@@ -200,7 +200,7 @@ tool_version() {
 		bun)       bun --version 2>/dev/null ;;
 		go)        go version 2>/dev/null | awk '{print $3}' | sed 's/go//' ;;
 		node)      node --version 2>/dev/null | sed 's/v//' ;;
-		nvim|neovim) nvim --version 2>/dev/null | head -1 | awk '{print $2}' | sed 's/v//' ;;
+		nvim|neovim) nvim --version 2>/dev/null | awk 'NR==1{gsub(/^v/,"",$2); print $2; exit}' ;;
 		python)    python3 --version 2>/dev/null | awk '{print $2}' ;;
 		rust)      rustc --version 2>/dev/null | awk '{print $2}' ;;
 		tmux)      tmux -V 2>/dev/null | awk '{print $2}' ;;
@@ -209,15 +209,15 @@ tool_version() {
 		bat)       bat --version 2>/dev/null | awk '{print $2}' ;;
 		bitwarden-cli) bw --version 2>/dev/null ;;
 		eza)       eza --version 2>/dev/null | awk 'NR==2 {print $1}' | sed 's/v//' ;;
-		starship)  starship --version 2>/dev/null | head -1 | awk '{print $2}' ;;
+		starship)  starship --version 2>/dev/null | awk 'NR==1{print $2; exit}' ;;
 		uv)        uv --version 2>/dev/null | awk '{print $2}' ;;
-		xh)        xh --version 2>/dev/null | head -1 | awk '{print $2}' ;;
+		xh)        xh --version 2>/dev/null | awk 'NR==1{print $2; exit}' ;;
 		yazi)      yazi --version 2>/dev/null | awk '{print $2}' ;;
 		age)       age --version 2>/dev/null | awk '{print $2}' | sed 's/v//' ;;
 		atuin)     atuin --version 2>/dev/null | awk '{print $2}' ;;
 		fnm)       fnm --version 2>/dev/null | sed 's/fnm //' ;;
 		ollama)    ollama --version 2>/dev/null | awk '{print $NF}' ;;
-		ghostty)   ghostty --version 2>/dev/null | head -1 | awk '{print $2}' ;;
+		ghostty)   ghostty --version 2>/dev/null | awk 'NR==1{print $2; exit}' ;;
 		*)         echo "" ;;
 	esac
 }
@@ -432,15 +432,24 @@ menu_skills() {
 		clear
 		header "Claude Code Skills"
 
-		# Show library stats
+		# Show library stats with provider count
 		if [[ -d "$skills_lib" ]]; then
-			local lib_count=0
+			local lib_count=0 provider_set=""
 			for d in "$skills_lib"/*/; do
-				[[ -d "$d" ]] && lib_count=$(( lib_count + 1 ))
+				[[ -d "$d" ]] || continue
+				lib_count=$(( lib_count + 1 ))
+				local p
+				p="$(_skill_provider "$d")"
+				if [[ ":$provider_set:" != *":$p:"* ]]; then
+					provider_set="${provider_set:+$provider_set:}$p"
+				fi
 			done
-			info "Library: $lib_count skills available"
+			local prov_count=0
+			IFS=':' read -ra _arr <<< "$provider_set"
+			prov_count=${#_arr[@]}
+			gum style --foreground 39 "  Library: ${lib_count} skills from ${prov_count} providers"
 		else
-			warn "Library: not fetched yet — run fetch first"
+			warn "  Library: not fetched — run Fetch first"
 		fi
 
 		# Show project stats
@@ -450,7 +459,11 @@ menu_skills() {
 			for d in "$project_dir"/*/; do
 				[[ -d "$d" ]] && proj_count=$(( proj_count + 1 ))
 			done
-			info "Project: $proj_count skill(s) installed"
+			if [[ "$proj_count" -gt 0 ]]; then
+				gum style --foreground 78 "  Project: ${proj_count} skill(s) installed"
+			else
+				gum style --foreground 240 "  Project: none installed"
+			fi
 		else
 			gum style --foreground 240 "  Project: none installed"
 		fi
@@ -461,6 +474,8 @@ menu_skills() {
 		choice=$(gum choose \
 			--header "Skills management:" \
 			--height 11 \
+			--cursor "▸ " \
+			--cursor.foreground "212" \
 			"Install Skills" \
 			"Remove Skills" \
 			"View Installed" \
@@ -493,6 +508,82 @@ menu_skills() {
 	done
 }
 
+_skill_provider() {
+	local source_file="$1/.source"
+	if [[ -f "$source_file" ]]; then
+		local repo
+		repo=$(<"$source_file")
+		case "$repo" in
+			anthropics/*)            echo "anthropic" ;;
+			vercel-labs/*)           echo "vercel" ;;
+			cloudflare/*)            echo "cloudflare" ;;
+			supabase/*)              echo "supabase" ;;
+			google-labs-code/*)      echo "google" ;;
+			huggingface/*)           echo "huggingface" ;;
+			stripe/*)                echo "stripe" ;;
+			callstackincubator/*)    echo "callstack" ;;
+			expo/*)                  echo "expo" ;;
+			better-auth/*)           echo "better-auth" ;;
+			neondatabase/*)          echo "neon" ;;
+			dmmulroy/*)              echo "dmmulroy" ;;
+			hashicorp/*)             echo "hashicorp" ;;
+			sanity-io/*)             echo "sanity" ;;
+			remotion-dev/*)          echo "remotion" ;;
+			WordPress/*)             echo "wordpress" ;;
+			openai/*)                echo "openai" ;;
+			ComposioHQ/*)            echo "composio" ;;
+			obra/*)                  echo "obra" ;;
+			coreyhaines31/*)         echo "coreyhaines" ;;
+			BrianRWagner/*)          echo "brianwagner" ;;
+			AgriciDaniel/*)          echo "agricidaniel" ;;
+			wshuyi/*)                echo "wshuyi" ;;
+			jthack/*)                echo "jthack" ;;
+			lackeyjb/*)              echo "lackeyjb" ;;
+			K-Dense-AI/*)            echo "k-dense-ai" ;;
+			Orchestra-Research/*)    echo "orchestra" ;;
+			*)                       echo "${repo%%/*}" ;;
+		esac
+	else
+		echo "unknown"
+	fi
+}
+
+_skill_description() {
+	local skill_md="$1/SKILL.md"
+	[[ -f "$skill_md" ]] || return 0
+	local in_front=0 val=""
+	while IFS= read -r line; do
+		if [[ "$in_front" -eq 0 ]]; then
+			[[ "$line" == "---" ]] && in_front=1
+			continue
+		fi
+		[[ "$line" == "---" ]] && break
+		if [[ "$line" =~ ^description: ]]; then
+			val="${line#description:}"
+			val="${val#"${val%%[![:space:]]*}"}"
+			val="${val#\"}" ; val="${val%\"}"
+			val="${val#\'}" ; val="${val%\'}"
+			if [[ -z "$val" || "$val" == ">" || "$val" == "|" ]]; then
+				val=""
+				while IFS= read -r nextline; do
+					if [[ "$nextline" =~ ^[[:space:]]+ ]]; then
+						local trimmed="${nextline#"${nextline%%[![:space:]]*}"}"
+						if [[ -z "$val" ]]; then
+							val="$trimmed"
+						else
+							val="$val $trimmed"
+						fi
+					else
+						break
+					fi
+				done
+			fi
+			break
+		fi
+	done < "$skill_md"
+	echo "$val"
+}
+
 do_skills_install() {
 	local skills_lib="$DEV_ENV/skills-lib"
 	if [[ ! -d "$skills_lib" ]]; then
@@ -501,25 +592,44 @@ do_skills_install() {
 		return
 	fi
 
-	local available=()
+	# Build filter labels: "provider/name · description"
+	local labels=() names_map=()
 	for d in "$skills_lib"/*/; do
 		[[ -d "$d" && -f "$d/SKILL.md" ]] || continue
-		available+=("$(basename "$d")")
+		local name provider desc label
+		name="$(basename "$d")"
+		provider="$(_skill_provider "$d")"
+		desc="$(_skill_description "$d")"
+		[[ ${#desc} -gt 55 ]] && desc="${desc:0:52}..."
+		if [[ -n "$desc" ]]; then
+			label="${provider}/${name} · ${desc}"
+		else
+			label="${provider}/${name}"
+		fi
+		labels+=("$label")
+		names_map+=("$name")
 	done
 
-	if [[ ${#available[@]} -eq 0 ]]; then
+	if [[ ${#labels[@]} -eq 0 ]]; then
 		error "No skills in library"
 		pause
 		return
 	fi
 
 	echo ""
+	gum style --foreground 212 --bold "  Select skills to install"
+	gum style --foreground 240 "  Type to filter by provider or skill name"
+	echo ""
+
 	local selected
-	selected=$(printf '%s\n' "${available[@]}" | gum filter \
+	selected=$(printf '%s\n' "${labels[@]}" | gum filter \
 		--no-limit \
-		--header "Type to filter, space to select, enter to confirm:" \
+		--header "space = select, enter = confirm:" \
 		--height 20 \
-		--placeholder "search skills..." \
+		--placeholder "e.g. anthropic, react, terraform..." \
+		--indicator "▸" \
+		--indicator.foreground "212" \
+		--match.foreground "78" \
 	) || return 0
 
 	if [[ -z "$selected" ]]; then
@@ -528,21 +638,31 @@ do_skills_install() {
 		return
 	fi
 
-	local names=()
-	while read -r name; do
-		names+=("$name")
+	# Extract skill names from selected labels
+	local install_names=()
+	while IFS= read -r line; do
+		# Parse "provider/name · desc" → extract name
+		local prov_name="${line%% ·*}"
+		local skill_name="${prov_name##*/}"
+		install_names+=("$skill_name")
 	done <<< "$selected"
 
 	echo ""
-	gum style --foreground 78 "Selected:"
-	for n in "${names[@]}"; do
-		info "  $n"
+	gum style --foreground 78 --bold "  Selected ${#install_names[@]} skill(s):"
+	echo ""
+	for n in "${install_names[@]}"; do
+		# Find provider for display
+		local prov=""
+		if [[ -d "$skills_lib/$n" ]]; then
+			prov="$(_skill_provider "$skills_lib/$n")"
+		fi
+		gum style --foreground 78 "    ▸ ${prov}/${n}"
 	done
 	echo ""
 
-	if gum confirm "Install ${#names[@]} skill(s) into this project?"; then
+	if gum confirm "Install ${#install_names[@]} skill(s) into this project?"; then
 		echo ""
-		"$DEV_ENV/skills" install "${names[@]}"
+		"$DEV_ENV/skills" install "${install_names[@]}"
 	fi
 	pause
 }
@@ -555,12 +675,24 @@ do_skills_remove() {
 		return
 	fi
 
-	local installed=()
+	local labels=() names=()
 	for d in "$project_dir"/*/; do
-		[[ -d "$d" ]] && installed+=("$(basename "$d")")
+		[[ -d "$d" ]] || continue
+		local name provider desc label
+		name="$(basename "$d")"
+		provider="$(_skill_provider "$d")"
+		desc="$(_skill_description "$d")"
+		[[ ${#desc} -gt 50 ]] && desc="${desc:0:47}..."
+		if [[ -n "$desc" ]]; then
+			label="${provider}/${name} · ${desc}"
+		else
+			label="${provider}/${name}"
+		fi
+		labels+=("$label")
+		names+=("$name")
 	done
 
-	if [[ ${#installed[@]} -eq 0 ]]; then
+	if [[ ${#labels[@]} -eq 0 ]]; then
 		warn "No skills installed"
 		pause
 		return
@@ -568,7 +700,7 @@ do_skills_remove() {
 
 	echo ""
 	local selected
-	selected=$(printf '%s\n' "${installed[@]}" | gum choose \
+	selected=$(printf '%s\n' "${labels[@]}" | gum choose \
 		--no-limit \
 		--header "Select skills to remove:" \
 		--height 15 \
@@ -582,16 +714,18 @@ do_skills_remove() {
 
 	echo ""
 	warn "Will remove:"
-	echo "$selected" | while read -r name; do
-		info "  $name"
-	done
+	while IFS= read -r line; do
+		gum style --foreground 214 "    ${line}"
+	done <<< "$selected"
 	echo ""
 
 	if gum confirm "Remove selected skill(s)?"; then
 		echo ""
-		echo "$selected" | while read -r name; do
-			"$DEV_ENV/skills" remove "$name"
-		done
+		while IFS= read -r line; do
+			local prov_name="${line%% ·*}"
+			local skill_name="${prov_name##*/}"
+			"$DEV_ENV/skills" remove "$skill_name"
+		done <<< "$selected"
 	fi
 	pause
 }
@@ -599,15 +733,72 @@ do_skills_remove() {
 do_skills_installed() {
 	clear
 	header "Installed Skills"
-	"$DEV_ENV/skills" installed
+
+	local project_dir=".claude/skills"
+	if [[ ! -d "$project_dir" ]]; then
+		warn "No skills installed in this project."
+		pause
+		return
+	fi
+
+	# Group by provider
+	declare -A groups
+	local count=0
+	for d in "$project_dir"/*/; do
+		[[ -d "$d" ]] || continue
+		local name provider
+		name="$(basename "$d")"
+		provider="$(_skill_provider "$d")"
+		groups["$provider"]+="$name"$'\n'
+		((count++)) || true
+	done
+
+	if [[ "$count" -eq 0 ]]; then
+		warn "No skills installed in this project."
+		pause
+		return
+	fi
+
+	gum style --foreground 240 "  ${count} skill(s) in .claude/skills/"
+	echo ""
+
+	local sorted_providers
+	sorted_providers=$(printf '%s\n' "${!groups[@]}" | sort)
+	while IFS= read -r provider; do
+		[[ -z "$provider" ]] && continue
+		gum style --foreground 212 --bold "  $provider"
+		while IFS= read -r name; do
+			[[ -z "$name" ]] && continue
+			local desc
+			desc="$(_skill_description "$project_dir/$name")"
+			[[ ${#desc} -gt 55 ]] && desc="${desc:0:52}..."
+			if [[ -n "$desc" ]]; then
+				gum style --foreground 78 "    $name" --foreground 240
+				printf "      \033[38;5;240m%s\033[0m\n" "$desc"
+			else
+				gum style --foreground 78 "    $name"
+			fi
+		done <<< "${groups[$provider]}"
+		echo ""
+	done <<< "$sorted_providers"
+
 	pause
 }
 
 do_skills_search() {
+	local skills_lib="$DEV_ENV/skills-lib"
+	if [[ ! -d "$skills_lib" ]]; then
+		error "Library not fetched. Run fetch first."
+		pause
+		return
+	fi
+
 	local term
 	term=$(gum input \
 		--header "Search skills:" \
 		--placeholder "e.g. react, terraform, seo..." \
+		--prompt "▸ " \
+		--prompt.foreground "212" \
 	) || return 0
 
 	if [[ -z "$term" ]]; then
@@ -615,7 +806,30 @@ do_skills_search() {
 	fi
 
 	echo ""
-	"$DEV_ENV/skills" search "$term"
+	local found=0
+	for d in "$skills_lib"/*/; do
+		[[ -d "$d" && -f "$d/SKILL.md" ]] || continue
+		local name provider desc
+		name="$(basename "$d")"
+		provider="$(_skill_provider "$d")"
+		desc="$(_skill_description "$d")"
+		local haystack="$name $provider $desc"
+		if echo "$haystack" | grep -qFi "$term"; then
+			[[ ${#desc} -gt 50 ]] && desc="${desc:0:47}..."
+			gum style --foreground 212 --bold "  ${provider}/${name}"
+			if [[ -n "$desc" ]]; then
+				gum style --foreground 240 "    ${desc}"
+			fi
+			echo ""
+			((found++)) || true
+		fi
+	done
+
+	if [[ "$found" -eq 0 ]]; then
+		warn "No skills matching '$term'"
+	else
+		gum style --foreground 240 "  ${found} result(s)"
+	fi
 	pause
 }
 
@@ -627,8 +841,52 @@ do_skills_browse() {
 		return
 	fi
 
-	echo ""
-	"$DEV_ENV/skills" list | gum pager
+	# Group skills by provider
+	declare -A groups
+	local total=0
+	for d in "$skills_lib"/*/; do
+		[[ -d "$d" && -f "$d/SKILL.md" ]] || continue
+		local name provider
+		name="$(basename "$d")"
+		provider="$(_skill_provider "$d")"
+		groups["$provider"]+="$name"$'\n'
+		((total++)) || true
+	done
+
+	# Build formatted output for pager
+	local output=""
+	output+="$(printf '  ╭─────────────────────────────────────────────────────────────╮\n')"
+	output+="$(printf '  │  %-59s│\n' "Claude Code Skills Library — ${total} skills")"
+	output+="$(printf '  ╰─────────────────────────────────────────────────────────────╯\n')"
+	output+=$'\n'
+
+	local sorted_providers
+	sorted_providers=$(printf '%s\n' "${!groups[@]}" | sort)
+	while IFS= read -r provider; do
+		[[ -z "$provider" ]] && continue
+		local pcount=0
+		while IFS= read -r n; do
+			[[ -z "$n" ]] && continue
+			((pcount++)) || true
+		done <<< "${groups[$provider]}"
+		output+="$(printf '  ┌ %s (%d)\n' "$provider" "$pcount")"
+		output+="$(printf '  │\n')"
+		while IFS= read -r name; do
+			[[ -z "$name" ]] && continue
+			local desc
+			desc="$(_skill_description "$skills_lib/$name")"
+			[[ ${#desc} -gt 52 ]] && desc="${desc:0:49}..."
+			if [[ -n "$desc" ]]; then
+				output+="$(printf '  │  %-32s %s\n' "$name" "$desc")"
+			else
+				output+="$(printf '  │  %s\n' "$name")"
+			fi
+		done <<< "${groups[$provider]}"
+		output+="$(printf '  │\n')"
+		output+=$'\n'
+	done <<< "$sorted_providers"
+
+	echo "$output" | gum pager --border-foreground 240
 }
 
 # -----------------------------------------------------------------------

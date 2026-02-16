@@ -28,6 +28,9 @@ clone_repo() {
 	}
 }
 
+# Current repo being processed (set by callers before install_skill)
+_CURRENT_REPO=""
+
 # Copy a single skill directory into $SKILLS_DIR/<name>/
 # install_skill <source-dir> <name> [priority]
 #   priority=curated (default): always install
@@ -39,10 +42,18 @@ install_skill() {
 		return
 	fi
 	if [[ "$priority" == "wildcard" && -d "$SKILLS_DIR/$name" ]]; then
+		# Still write .source if missing (backfill metadata)
+		if [[ -n "$_CURRENT_REPO" && ! -f "$SKILLS_DIR/$name/.source" ]]; then
+			echo "$_CURRENT_REPO" > "$SKILLS_DIR/$name/.source"
+		fi
 		return
 	fi
 	rm -rf "$SKILLS_DIR/$name"
 	cp -r "$src" "$SKILLS_DIR/$name"
+	# Write provider metadata
+	if [[ -n "$_CURRENT_REPO" ]]; then
+		echo "$_CURRENT_REPO" > "$SKILLS_DIR/$name/.source"
+	fi
 	((total++)) || true
 }
 
@@ -51,6 +62,7 @@ install_named() {
 	local repo="$1" branch="$2" base="$3"
 	shift 3
 	clone_repo "$repo" "$branch" || return 0
+	_CURRENT_REPO="$repo"
 	local repo_dir="$TMP_DIR/$repo"
 	for entry in "$@"; do
 		local src_name="${entry%%→*}"
@@ -67,6 +79,7 @@ install_named() {
 install_wildcard() {
 	local repo="$1" branch="$2" base="${3:-.}"
 	clone_repo "$repo" "$branch" || return 0
+	_CURRENT_REPO="$repo"
 	local repo_dir="$TMP_DIR/$repo"
 	local search_dir="$repo_dir/$base"
 	[[ -d "$search_dir" ]] || return 0
@@ -86,6 +99,7 @@ install_hashicorp() {
 	local repo="$1" branch="$2"
 	shift 2
 	clone_repo "$repo" "$branch" || return 0
+	_CURRENT_REPO="$repo"
 	local repo_dir="$TMP_DIR/$repo"
 	for entry in "$@"; do
 		local src_name="${entry%%→*}"
@@ -130,6 +144,7 @@ install_named vercel-labs/agent-skills main "skills/" \
 	composition-patterns react-native-skills
 # Also grab the claude.ai/ nested skill (repo already cloned above)
 if [[ -d "$TMP_DIR/vercel-labs/agent-skills/skills/claude.ai/vercel-deploy-claimable" ]]; then
+	_CURRENT_REPO="vercel-labs/agent-skills"
 	install_skill "$TMP_DIR/vercel-labs/agent-skills/skills/claude.ai/vercel-deploy-claimable" vercel-deploy-claimable
 fi
 

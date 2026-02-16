@@ -25,10 +25,87 @@ show_help() {
 }
 
 # Read description from SKILL.md frontmatter (description: line)
+# Handles both inline and YAML multi-line (> or |) descriptions
 get_description() {
 	local skill_md="$1/SKILL.md"
 	[[ -f "$skill_md" ]] || return 0
-	sed -n '/^---$/,/^---$/{/^description:/{ s/^description:[[:space:]]*//; s/^["'"'"']//; s/["'"'"']$//; p; q; }}' "$skill_md"
+	local in_front=0 val=""
+	while IFS= read -r line; do
+		if [[ "$in_front" -eq 0 ]]; then
+			[[ "$line" == "---" ]] && in_front=1
+			continue
+		fi
+		[[ "$line" == "---" ]] && break
+		if [[ "$line" =~ ^description: ]]; then
+			val="${line#description:}"
+			val="${val#"${val%%[![:space:]]*}"}"  # trim leading whitespace
+			val="${val#\"}" ; val="${val%\"}"
+			val="${val#\'}" ; val="${val%\'}"
+			# If value is > or | or empty, read next indented line
+			if [[ -z "$val" || "$val" == ">" || "$val" == "|" ]]; then
+				val=""
+				while IFS= read -r nextline; do
+					if [[ "$nextline" =~ ^[[:space:]]+ ]]; then
+						local trimmed="${nextline#"${nextline%%[![:space:]]*}"}"
+						if [[ -z "$val" ]]; then
+							val="$trimmed"
+						else
+							val="$val $trimmed"
+						fi
+					else
+						break
+					fi
+				done
+			fi
+			break
+		fi
+	done < "$skill_md"
+	echo "$val"
+}
+
+# Read provider from .source file
+get_provider() {
+	local source_file="$1/.source"
+	if [[ -f "$source_file" ]]; then
+		cat "$source_file"
+	else
+		echo "unknown"
+	fi
+}
+
+# Map repo to short provider label
+provider_label() {
+	local repo="$1"
+	case "$repo" in
+		anthropics/*)            echo "anthropic" ;;
+		vercel-labs/*)           echo "vercel" ;;
+		cloudflare/*)            echo "cloudflare" ;;
+		supabase/*)              echo "supabase" ;;
+		google-labs-code/*)      echo "google" ;;
+		huggingface/*)           echo "huggingface" ;;
+		stripe/*)                echo "stripe" ;;
+		callstackincubator/*)    echo "callstack" ;;
+		expo/*)                  echo "expo" ;;
+		better-auth/*)           echo "better-auth" ;;
+		neondatabase/*)          echo "neon" ;;
+		dmmulroy/*)              echo "dmmulroy" ;;
+		hashicorp/*)             echo "hashicorp" ;;
+		sanity-io/*)             echo "sanity" ;;
+		remotion-dev/*)          echo "remotion" ;;
+		WordPress/*)             echo "wordpress" ;;
+		openai/*)                echo "openai" ;;
+		ComposioHQ/*)            echo "composio" ;;
+		obra/*)                  echo "obra" ;;
+		coreyhaines31/*)         echo "coreyhaines" ;;
+		BrianRWagner/*)          echo "brianwagner" ;;
+		AgriciDaniel/*)          echo "agricidaniel" ;;
+		wshuyi/*)                echo "wshuyi" ;;
+		jthack/*)                echo "jthack" ;;
+		lackeyjb/*)              echo "lackeyjb" ;;
+		K-Dense-AI/*)            echo "k-dense-ai" ;;
+		Orchestra-Research/*)    echo "orchestra" ;;
+		*)                       echo "${repo%%/*}" ;;
+	esac
 }
 
 cmd_fetch() {
@@ -40,20 +117,40 @@ cmd_list() {
 		echo "No skills found. Run 'dev skills fetch' first."
 		exit 1
 	fi
+
+	# Collect skills grouped by provider
+	declare -A groups
 	local count=0
 	for dir in "$LIBRARY"/*/; do
 		[[ -d "$dir" ]] || continue
-		local name
+		local name repo label
 		name="$(basename "$dir")"
-		local desc
-		desc="$(get_description "$dir")"
-		if [[ -n "$desc" ]]; then
-			printf "  %-40s %s\n" "$name" "$desc"
-		else
-			printf "  %s\n" "$name"
-		fi
+		repo="$(get_provider "$dir")"
+		label="$(provider_label "$repo")"
+		groups["$label"]+="$name"$'\n'
 		((count++)) || true
 	done
+
+	# Sort providers and print
+	local sorted_providers
+	sorted_providers=$(printf '%s\n' "${!groups[@]}" | sort)
+	while IFS= read -r provider; do
+		[[ -z "$provider" ]] && continue
+		printf "\n  \033[1m%s\033[0m\n" "$provider"
+		while IFS= read -r name; do
+			[[ -z "$name" ]] && continue
+			local desc
+			desc="$(get_description "$LIBRARY/$name")"
+			if [[ -n "$desc" ]]; then
+				# Truncate long descriptions
+				[[ ${#desc} -gt 70 ]] && desc="${desc:0:67}..."
+				printf "    %-35s %s\n" "$name" "$desc"
+			else
+				printf "    %s\n" "$name"
+			fi
+		done <<< "${groups[$provider]}"
+	done <<< "$sorted_providers"
+
 	printf "\n%d skills available\n" "$count"
 }
 
@@ -66,16 +163,18 @@ cmd_search() {
 	local found=0
 	for dir in "$LIBRARY"/*/; do
 		[[ -d "$dir" ]] || continue
-		local name
+		local name repo label desc
 		name="$(basename "$dir")"
-		local desc
+		repo="$(get_provider "$dir")"
+		label="$(provider_label "$repo")"
 		desc="$(get_description "$dir")"
-		local haystack="$name $desc"
+		local haystack="$name $label $desc"
 		if echo "$haystack" | grep -qFi "$term"; then
 			if [[ -n "$desc" ]]; then
-				printf "  %-40s %s\n" "$name" "$desc"
+				[[ ${#desc} -gt 60 ]] && desc="${desc:0:57}..."
+				printf "  %-15s %-30s %s\n" "$label" "$name" "$desc"
 			else
-				printf "  %s\n" "$name"
+				printf "  %-15s %s\n" "$label" "$name"
 			fi
 			((found++)) || true
 		fi
