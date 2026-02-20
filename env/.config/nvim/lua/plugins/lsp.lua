@@ -59,45 +59,8 @@ return {
             },
           },
         },
-        -- Go
-        gopls = {
-          settings = {
-            gopls = {
-              gofumpt = true,
-              codelenses = {
-                gc_details = false,
-                generate = true,
-                regenerate_cgo = true,
-                run_govulncheck = true,
-                test = true,
-                tidy = true,
-                upgrade_dependency = true,
-                vendor = true,
-              },
-              hints = {
-                assignVariableTypes = true,
-                compositeLiteralFields = true,
-                compositeLiteralTypes = true,
-                constantValues = true,
-                functionTypeParameters = true,
-                parameterNames = true,
-                rangeVariableTypes = true,
-              },
-              analyses = {
-                fieldalignment = true,
-                nilness = true,
-                unusedparams = true,
-                unusedwrite = true,
-                useany = true,
-              },
-              usePlaceholders = true,
-              completeUnimported = true,
-              staticcheck = true,
-              directoryFilters = { "-.git", "-.vscode", "-.idea", "-.venv", "-node_modules" },
-              semanticTokens = true,
-            },
-          },
-        },
+        -- Go (requires `go` to be installed: yay -S go)
+        -- gopls = {},
         -- TypeScript
         ts_ls = {
           settings = {
@@ -166,6 +129,14 @@ return {
             },
           },
         },
+        -- Shared capabilities for all servers
+        ["*"] = {
+          capabilities = {
+            textDocument = {
+              foldingRange = { dynamicRegistration = false, lineFoldingOnly = true },
+            },
+          },
+        },
         -- Other servers with defaults
         taplo = {},
         marksman = {},
@@ -184,11 +155,6 @@ return {
       inlay_hints = { enabled = true },
       codelens = { enabled = true },
       document_highlight = { enabled = true },
-      capabilities = {
-        textDocument = {
-          foldingRange = { dynamicRegistration = false, lineFoldingOnly = true },
-        },
-      },
     },
   },
 
@@ -241,41 +207,18 @@ return {
     "mason-org/mason.nvim",
     opts = {
       ensure_installed = {
-        -- LSP servers
-        "lua-language-server",
-        "pyright",
-        "ruff",
-        "gopls",
-        "typescript-language-server",
-        "svelte-language-server",
-        "tailwindcss-language-server",
-        "json-lsp",
-        "yaml-language-server",
-        "taplo",
-        "marksman",
-        "dockerfile-language-server",
-        "docker-compose-language-service",
-        "html-lsp",
-        "css-lsp",
-        "emmet-ls",
-        "bash-language-server",
         -- Formatters
         "stylua",
         "prettier",
-        "ruff",
         "shfmt",
         "biome",
-        "gofumpt",
-        "goimports",
         -- Linters
         "eslint_d",
         "shellcheck",
         "markdownlint",
-        "golangci-lint",
         -- DAP
         "debugpy",
         "js-debug-adapter",
-        "delve",
       },
       ui = {
         border = "rounded",
@@ -288,6 +231,29 @@ return {
         },
       },
     },
+    -- Override config to fix LazyVim race condition:
+    -- LazyVim's default config calls p:install() without checking p:is_installing(),
+    -- which crashes when mason's config fires twice (startup + file open).
+    config = function(_, opts)
+      require("mason").setup(opts)
+      local mr = require("mason-registry")
+      mr:on("package:install:success", function()
+        vim.defer_fn(function()
+          require("lazy.core.handler.event").trigger({
+            event = "FileType",
+            buf = vim.api.nvim_get_current_buf(),
+          })
+        end, 100)
+      end)
+      mr.refresh(function()
+        for _, tool in ipairs(opts.ensure_installed) do
+          local ok, p = pcall(mr.get_package, tool)
+          if ok and not p:is_installed() and not p:is_installing() then
+            p:install()
+          end
+        end
+      end)
+    end,
   },
 
   -----------------------------------------------------------------------------

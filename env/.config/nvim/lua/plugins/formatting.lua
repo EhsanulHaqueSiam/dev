@@ -25,11 +25,11 @@ return {
         yaml = { "prettier" },
         -- Python (ruff handles both linting and formatting, no need for black)
         python = { "ruff_format" },
-        -- Go
-        go = { "goimports", "gofumpt" },
-        -- Markdown
-        markdown = { "prettier", "markdownlint" },
-        ["markdown.mdx"] = { "prettier", "markdownlint" },
+        -- Go (requires `go` to be installed: yay -S go)
+        -- go = { "goimports", "gofumpt" },
+        -- Markdown (markdownlint is a linter, handled by nvim-lint)
+        markdown = { "prettier" },
+        ["markdown.mdx"] = { "prettier" },
         -- Lua
         lua = { "stylua" },
         -- Shell
@@ -51,18 +51,7 @@ return {
         -- General
         ["_"] = { "trim_whitespace" },
       },
-      format_on_save = function(bufnr)
-        -- Disable with a global or buffer-local variable
-        if vim.g.disable_autoformat or vim.b[bufnr].disable_autoformat then
-          return
-        end
-        -- Disable autoformat for files in certain paths
-        local bufname = vim.api.nvim_buf_get_name(bufnr)
-        if bufname:match("/node_modules/") then
-          return
-        end
-        return { timeout_ms = 3000, lsp_fallback = true }
-      end,
+      -- format_on_save handled by LazyVim automatically
       formatters = {
         shfmt = {
           prepend_args = { "-i", "2", "-ci", "-bn" },
@@ -115,7 +104,6 @@ return {
       opts.sources = vim.list_extend(opts.sources or {}, {
         -- Diagnostics
         nls.builtins.diagnostics.markdownlint,
-        nls.builtins.diagnostics.shellcheck,
         -- Code actions
         nls.builtins.code_actions.gitsigns,
       })
