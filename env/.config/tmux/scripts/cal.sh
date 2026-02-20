@@ -43,7 +43,7 @@ get_meeting_gcalcli() {
 
 calculate_minutes() {
     local meet_epoch now_epoch
-    meet_epoch=$(date -d "today $time" +%s 2>/dev/null) || return 1
+    meet_epoch=$(date -d "$time" +%s 2>/dev/null) || return 1
     now_epoch=$(date +%s)
     minutes_till_meeting=$(( (meet_epoch - now_epoch) / 60 ))
 }
