@@ -252,4 +252,34 @@ return {
       { "<leader>qd", function() require("persistence").stop() end, desc = "Don't Save Session" },
     },
   },
+
+  -----------------------------------------------------------------------------
+  -- WORKTREES: Git worktree management
+  -----------------------------------------------------------------------------
+  {
+    "Juksuu/worktrees.nvim",
+    dependencies = { "nvim-lua/plenary.nvim" },
+    event = "VeryLazy",
+    opts = {
+      worktree_path = "..",
+      use_netrw = false,
+    },
+    keys = {
+      { "<leader>gws", function() Snacks.picker.worktrees() end, desc = "Switch Worktree" },
+      { "<leader>gwn", function() Snacks.picker.worktrees_new() end, desc = "New Worktree" },
+      { "<leader>gwr", function() Snacks.picker.worktrees_remove() end, desc = "Remove Worktree" },
+      { "<leader>gwl", function()
+        local Job = require("plenary.job")
+        Job:new({
+          command = "git",
+          args = { "worktree", "list" },
+          on_exit = function(j, _)
+            vim.schedule(function()
+              vim.notify(table.concat(j:result(), "\n"), vim.log.levels.INFO, { title = "Git Worktrees" })
+            end)
+          end,
+        }):start()
+      end, desc = "List Worktrees (notify)" },
+    },
+  },
 }

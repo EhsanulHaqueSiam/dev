@@ -30,6 +30,7 @@ return {
         { "<leader>gh", group = "hunks" },
         { "<leader>gH", group = "github" },
         { "<leader>gv", group = "diffview" },
+        { "<leader>gw", group = "worktree" },
         { "<leader>h", group = "harpoon" },
         { "<leader>o", group = "overseer" },
         { "<leader>q", group = "quit/session" },
