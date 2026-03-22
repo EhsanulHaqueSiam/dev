@@ -126,10 +126,23 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
+if ! [[ "$keep" =~ ^[1-9][0-9]*$ ]]; then
+	err "--keep must be a positive integer"
+	exit 1
+fi
+if ! [[ "$jobs" =~ ^[1-9][0-9]*$ ]]; then
+	err "--jobs must be a positive integer"
+	exit 1
+fi
+
 # -----------------------------------------------------------------------
 # Check dependencies
 # -----------------------------------------------------------------------
 command -v rsync &>/dev/null || { err "rsync required"; exit 1; }
+use_ionice=0
+if command -v ionice &>/dev/null; then
+	use_ionice=1
+fi
 
 # -----------------------------------------------------------------------
 # Check SSD
@@ -258,7 +271,9 @@ if [[ $sync_mode -eq 1 ]]; then
 			info "syncing $src..."
 			rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" --stats \
 				"$src_path/" "$dest/" 2>&1 | grep -E "^(Number|Total)" | head -5 || true
-			if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+			rsync_rc=${PIPESTATUS[0]}
+			# exit 23 = partial transfer (expected: --no-links skips symlinks)
+			if [[ $rsync_rc -ne 0 && $rsync_rc -ne 23 ]]; then
 				sync_failed=1
 			fi
 			echo ""
@@ -294,6 +309,10 @@ if [[ $sync_mode -eq 1 ]]; then
 		else
 			notify "Backup sync had errors" "Completed in ${elapsed}s with errors"
 		fi
+	fi
+
+	if [[ $dry_run -eq 0 && $sync_failed -ne 0 ]]; then
+		exit 1
 	fi
 	exit 0
 fi
@@ -372,18 +391,32 @@ sync_parallel() {
 
 		if [[ -d "$item_path" ]]; then
 			mkdir -p "$dest/$name"
-			ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" \
-				"$item_path/" "$dest/$name/" >/dev/null 2>&1 &
+			if [[ $use_ionice -eq 1 ]]; then
+				ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" \
+					"$item_path/" "$dest/$name/" >/dev/null 2>&1 &
+			else
+				rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" \
+					"$item_path/" "$dest/$name/" >/dev/null 2>&1 &
+			fi
 		else
-			ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" \
-				"$item_path" "$dest/" >/dev/null 2>&1 &
+			if [[ $use_ionice -eq 1 ]]; then
+				ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" \
+					"$item_path" "$dest/" >/dev/null 2>&1 &
+			else
+				rsync "${RSYNC_FLAGS[@]}" \
+					"$item_path" "$dest/" >/dev/null 2>&1 &
+			fi
 		fi
 		batch_pids+=($!)
 
 		# Throttle: wait for batch when hitting max jobs
 		if (( ${#batch_pids[@]} >= jobs )); then
 			for pid in "${batch_pids[@]}"; do
-				wait "$pid" 2>/dev/null || sync_failed_local=1
+				wait "$pid" 2>/dev/null; local rc=$?
+				# exit 23 = partial transfer (expected: --no-links skips symlinks)
+				if [[ $rc -ne 0 && $rc -ne 23 ]]; then
+					sync_failed_local=1
+				fi
 				done_count=$(( done_count + 1 ))
 			done
 			info "  [$done_count/$total_items] items synced..."
@@ -393,7 +426,10 @@ sync_parallel() {
 
 	# Wait for remaining batch
 	for pid in "${batch_pids[@]}"; do
-		wait "$pid" 2>/dev/null || sync_failed_local=1
+		wait "$pid" 2>/dev/null; local rc=$?
+		if [[ $rc -ne 0 && $rc -ne 23 ]]; then
+			sync_failed_local=1
+		fi
 		done_count=$(( done_count + 1 ))
 	done
 
@@ -505,4 +541,8 @@ if [[ $dry_run -eq 0 ]]; then
 	else
 		notify "Backup had errors" "Completed in ${elapsed}s with errors"
 	fi
+fi
+
+if [[ $dry_run -eq 0 && $sync_failed -ne 0 ]]; then
+	exit 1
 fi

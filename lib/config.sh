@@ -99,14 +99,33 @@ list_ssds() {
 }
 
 save_config() {
-	# Upsert key=value into config file
+	# Upsert key=value into config file safely (supports values with &, /, \, and ")
 	local key="$1" value="$2"
+	local tmp_file escaped_value
+	escaped_value="${value//\\/\\\\}"
+	escaped_value="${escaped_value//\"/\\\"}"
+
 	mkdir -p "$DEV_ENV_CONFIG_DIR"
-	if [[ -f "$DEV_ENV_CONFIG_FILE" ]] && grep -q "^${key}=" "$DEV_ENV_CONFIG_FILE" 2>/dev/null; then
-		sed -i "s|^${key}=.*|${key}=\"${value}\"|" "$DEV_ENV_CONFIG_FILE"
+	tmp_file="$(mktemp)"
+
+	if [[ -f "$DEV_ENV_CONFIG_FILE" ]]; then
+		awk -v k="$key" -v v="$escaped_value" '
+			BEGIN { updated=0 }
+			index($0, k "=") == 1 {
+				print k "=\"" v "\""
+				updated=1
+				next
+			}
+			{ print }
+			END {
+				if (!updated) print k "=\"" v "\""
+			}
+		' "$DEV_ENV_CONFIG_FILE" > "$tmp_file"
 	else
-		echo "${key}=\"${value}\"" >> "$DEV_ENV_CONFIG_FILE"
+		printf '%s="%s"\n' "$key" "$escaped_value" > "$tmp_file"
 	fi
+
+	mv "$tmp_file" "$DEV_ENV_CONFIG_FILE"
 }
 
 check_ssd() {

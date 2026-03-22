@@ -76,10 +76,19 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
+if ! [[ "$jobs" =~ ^[1-9][0-9]*$ ]]; then
+	err "--jobs must be a positive integer"
+	exit 1
+fi
+
 # -----------------------------------------------------------------------
 # Check dependencies
 # -----------------------------------------------------------------------
 command -v rsync &>/dev/null || { err "rsync required"; exit 1; }
+use_ionice=0
+if command -v ionice &>/dev/null; then
+	use_ionice=1
+fi
 
 # -----------------------------------------------------------------------
 # Check SSD
@@ -250,6 +259,7 @@ for target in "${targets[@]}"; do
 	if [[ ! -d "$src_path" ]]; then
 		err "not found in backup: $target"
 		err "available: $(ls -1 "$backup_dir" 2>/dev/null | tr '\n' ' ')"
+		sync_failed=1
 		continue
 	fi
 
@@ -292,11 +302,21 @@ for target in "${targets[@]}"; do
 
 		if [[ -d "$item_path" ]]; then
 			mkdir -p "$dest_path/$name"
-			ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" \
-				"$item_path/" "$dest_path/$name/" >/dev/null 2>&1 &
+			if [[ $use_ionice -eq 1 ]]; then
+				ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" \
+					"$item_path/" "$dest_path/$name/" >/dev/null 2>&1 &
+			else
+				rsync "${RSYNC_FLAGS[@]}" \
+					"$item_path/" "$dest_path/$name/" >/dev/null 2>&1 &
+			fi
 		else
-			ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" \
-				"$item_path" "$dest_path/" >/dev/null 2>&1 &
+			if [[ $use_ionice -eq 1 ]]; then
+				ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" \
+					"$item_path" "$dest_path/" >/dev/null 2>&1 &
+			else
+				rsync "${RSYNC_FLAGS[@]}" \
+					"$item_path" "$dest_path/" >/dev/null 2>&1 &
+			fi
 		fi
 		batch_pids+=($!)
 
@@ -340,4 +360,8 @@ if [[ $dry_run -eq 0 ]]; then
 	fi
 else
 	warn "dry run — nothing was changed"
+fi
+
+if [[ $sync_failed -ne 0 ]]; then
+	exit 1
 fi

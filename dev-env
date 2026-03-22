@@ -132,6 +132,13 @@ dry() {
 	return 0
 }
 
+escape_sed_replacement() {
+	local value="$1"
+	value="${value//\\/\\\\}"
+	value="${value//&/\\&}"
+	printf '%s' "$value"
+}
+
 # Copy a directory from repo to system, replacing existing
 copy_dir() {
 	local src="$1"
@@ -180,13 +187,19 @@ copy_file() {
 # -----------------------------------------------------------------------
 do_deploy() {
 	# Save repo path so dev-env works from anywhere after deploy
-	mkdir -p "$(dirname "$_dev_env_config")"
-	if [ -f "$_dev_env_config" ] && grep -q '^DEV_ENV_PATH=' "$_dev_env_config" 2>/dev/null; then
-		sed -i "s|^DEV_ENV_PATH=.*|DEV_ENV_PATH=\"$DEV_ENV\"|" "$_dev_env_config"
+	if [[ $dry_run == "1" ]]; then
+		warn "DRY RUN — would save repo path: $DEV_ENV"
 	else
-		echo "DEV_ENV_PATH=\"$DEV_ENV\"" >> "$_dev_env_config"
+		local escaped_dev_env
+		escaped_dev_env="$(escape_sed_replacement "$DEV_ENV")"
+		mkdir -p "$(dirname "$_dev_env_config")"
+		if [ -f "$_dev_env_config" ] && grep -q '^DEV_ENV_PATH=' "$_dev_env_config" 2>/dev/null; then
+			sed -i "s|^DEV_ENV_PATH=.*|DEV_ENV_PATH=\"$escaped_dev_env\"|" "$_dev_env_config"
+		else
+			echo "DEV_ENV_PATH=\"$DEV_ENV\"" >> "$_dev_env_config"
+		fi
+		log "saved repo path: $DEV_ENV"
 	fi
-	log "saved repo path: $DEV_ENV"
 
 	# .config/ directories
 	log "deploying .config directories..."

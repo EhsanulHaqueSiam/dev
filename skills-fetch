@@ -15,6 +15,17 @@ skipped=0
 
 # ── helpers ──────────────────────────────────────────────────────────
 
+usage() {
+	cat <<'EOF'
+Usage: skills-fetch
+
+Download curated Claude Code skills into skills-lib/.
+
+Options:
+  -h, --help    Show this help message
+EOF
+}
+
 clone_repo() {
 	local repo="$1" branch="${2:-main}"
 	local dest="$TMP_DIR/$repo"
@@ -125,6 +136,20 @@ install_hashicorp() {
 }
 
 # ── main ─────────────────────────────────────────────────────────────
+
+if [[ $# -gt 0 ]]; then
+	case "${1:-}" in
+		-h|--help)
+			usage
+			exit 0
+			;;
+		*)
+			echo "Unknown option: $1" >&2
+			usage >&2
+			exit 1
+			;;
+	esac
+fi
 
 printf "Fetching Claude Code skills…\n\n"
 mkdir -p "$SKILLS_DIR"

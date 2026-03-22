@@ -65,7 +65,7 @@ if [[ $env_only == "0" ]]; then
 	log "running installers..."
 	echo ""
 
-	mapfile -t runs_list < <(find "$script_dir/runs" -mindepth 1 -maxdepth 1 -executable | sort)
+	mapfile -t runs_list < <(find "$script_dir/runs" -mindepth 1 -maxdepth 1 -type f -executable | sort)
 
 	for s in "${runs_list[@]}"; do
 		name=$(basename "$s")
@@ -95,10 +95,20 @@ fi
 # -----------------------------------------------------------------------
 # Deploy configs (always runs unless grep filters it out)
 # -----------------------------------------------------------------------
-if [[ -z "$grep_filter" ]] || [[ "env" == *"$grep_filter"* ]] || [[ $env_only == "1" ]]; then
+should_deploy_env=0
+if [[ $env_only == "1" ]]; then
+	should_deploy_env=1
+elif [[ -z "$grep_filter" ]]; then
+	should_deploy_env=1
+elif [[ "$grep_filter" == "env" || "$grep_filter" == "dev-env" || "$grep_filter" == "config" || "$grep_filter" == "configs" ]]; then
+	should_deploy_env=1
+fi
+
+if [[ $should_deploy_env == "1" ]]; then
 	log "deploying configs..."
 	if [[ $dry_run == "1" ]]; then
 		"$script_dir/dev-env" --dry
+		skipped+=("dev-env")
 	else
 		if "$script_dir/dev-env"; then
 			passed+=("dev-env")
