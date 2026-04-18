@@ -33,6 +33,35 @@ REPO_HTTPS="https://github.com/EhsanulHaqueSiam/dev.git"
 REPO_SSH="git@github.com:EhsanulHaqueSiam/dev.git"
 DEV_DIR="$HOME/Personal/dev"
 
+show_help() {
+	cat <<-'EOF'
+	Usage: bootstrap [options]
+
+	Set up this dev environment on a fresh machine.
+
+	Options:
+	  -h, --help   Show this help message
+
+	Examples:
+	  ./bootstrap
+	  curl -fsSL https://raw.githubusercontent.com/EhsanulHaqueSiam/dev/main/bootstrap | bash
+	EOF
+}
+
+if [[ $# -gt 0 ]]; then
+	case "$1" in
+		-h|--help)
+			show_help
+			exit 0
+			;;
+		*)
+			err "unknown option: $1"
+			show_help
+			exit 1
+			;;
+	esac
+fi
+
 # -----------------------------------------------------------------------
 # Step 1: Ensure git is available
 # -----------------------------------------------------------------------

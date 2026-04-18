@@ -5,13 +5,73 @@ if [ -z "${XDG_CONFIG_HOME:-}" ]; then
 	XDG_CONFIG_HOME="$HOME/.config"
 fi
 
+show_help() {
+	cat <<-'EOF'
+	Usage: dev-env [command] [options]
+
+	Manage dotfile configs between the repo and your system.
+
+	Commands:
+	  deploy              Copy repo configs to system (default)
+	  capture <path>      Pull a live config into the repo
+	  update [name]       Re-capture all (or matching) tracked configs
+	  diff [name]         Show modified configs (repo vs live)
+	  compare [name]      Side-by-side diff (uses delta if available)
+	  doctor              Diagnose issues (symlinks, perms, drift, deps)
+
+	Options:
+	  --dry               Preview mode — show what would change
+	  --commit            Auto-commit after update
+	  -h, --help          Show this help message
+
+	Examples:
+	  ./dev-env                       Deploy all configs
+	  ./dev-env capture ~/.config/nvim  Pull nvim config into repo
+	  ./dev-env update ghostty        Re-capture only ghostty
+	  ./dev-env update --commit       Re-capture all + git commit
+	  ./dev-env compare               Side-by-side diff
+	  ./dev-env doctor                Health check
+	EOF
+}
+
+read_config_var() {
+	local key="$1"
+	local file="$2"
+	local value
+
+	value="$(grep -m1 "^${key}=" "$file" 2>/dev/null | cut -d= -f2- || true)"
+	value="${value#"${value%%[![:space:]]*}"}"
+	value="${value%"${value##*[![:space:]]}"}"
+
+	if [[ ${#value} -ge 2 ]]; then
+		local first_char last_char
+		first_char="${value:0:1}"
+		last_char="${value: -1}"
+		if [[ "$first_char" == "$last_char" && ( "$first_char" == '"' || "$first_char" == "'" ) ]]; then
+			value="${value:1:${#value}-2}"
+		fi
+	fi
+
+	printf '%s' "$value"
+}
+
+# Help should always work, even if saved DEV_ENV_PATH is stale.
+for arg in "$@"; do
+	case "$arg" in
+		-h|--help)
+			show_help
+			exit 0
+			;;
+	esac
+done
+
 # Resolve DEV_ENV — the path to the dev repo (not this script's install location)
 # Priority: 1) DEV_ENV env var  2) saved in config  3) script location (only works when run from repo)
 _dev_env_config="${XDG_CONFIG_HOME}/dev-env/config"
 if [ -z "${DEV_ENV:-}" ]; then
 	# Try reading from config file
-	if [ -f "$_dev_env_config" ] && grep -q '^DEV_ENV_PATH=' "$_dev_env_config" 2>/dev/null; then
-		DEV_ENV="$(grep '^DEV_ENV_PATH=' "$_dev_env_config" | head -1 | cut -d= -f2-)"
+	if [ -f "$_dev_env_config" ]; then
+		DEV_ENV="$(read_config_var "DEV_ENV_PATH" "$_dev_env_config")"
 	fi
 fi
 if [ -z "${DEV_ENV:-}" ]; then
@@ -52,35 +112,7 @@ while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--dry) dry_run="1" ;;
 		--commit) do_commit="1" ;;
-		-h|--help)
-			cat <<-'EOF'
-			Usage: dev-env [command] [options]
-
-			Manage dotfile configs between the repo and your system.
-
-			Commands:
-			  deploy              Copy repo configs to system (default)
-			  capture <path>      Pull a live config into the repo
-			  update [name]       Re-capture all (or matching) tracked configs
-			  diff [name]         Show modified configs (repo vs live)
-			  compare [name]      Side-by-side diff (uses delta if available)
-			  doctor              Diagnose issues (symlinks, perms, drift, deps)
-
-			Options:
-			  --dry               Preview mode — show what would change
-			  --commit            Auto-commit after update
-			  -h, --help          Show this help message
-
-			Examples:
-			  ./dev-env                       Deploy all configs
-			  ./dev-env capture ~/.config/nvim  Pull nvim config into repo
-			  ./dev-env update ghostty        Re-capture only ghostty
-			  ./dev-env update --commit       Re-capture all + git commit
-			  ./dev-env compare               Side-by-side diff
-			  ./dev-env doctor                Health check
-			EOF
-			exit 0
-			;;
+		-h|--help) show_help; exit 0 ;;
 		capture)
 			mode="capture"
 			if [[ $# -gt 1 ]]; then
