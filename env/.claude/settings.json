@@ -1,18 +1,155 @@
 {
   "env": {
+    "CLAUDE_CODE_ENABLE_APPEND_SUBAGENT_PROMPT": "1",
+    "CLAUDE_CODE_ENABLE_AWAY_SUMMARY": "1",
+    "CLAUDE_CODE_ENABLE_BACKGROUND_PLUGIN_REFRESH": "1",
+    "CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING": "1",
+    "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "1",
+    "CLAUDE_CODE_ENABLE_TOKEN_USAGE_ATTACHMENT": "1",
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
-  "enabledPlugins": {
-    "frontend-design@claude-plugins-official": true,
-    "security-guidance@claude-plugins-official": true
+  "permissions": {
+    "defaultMode": "auto"
   },
+  "model": "opus",
   "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/home/siam/.local/share/mise/installs/node/24.15.0/bin/node\" \"/home/siam/.claude/hooks/gsd-context-monitor.js\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/home/siam/.local/share/mise/installs/node/24.15.0/bin/node\" \"/home/siam/.claude/hooks/gsd-read-injection-scanner.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"/home/siam/.claude/hooks/gsd-phase-boundary.sh\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/siam/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/siam/.orca/agent-hooks/claude-hook.sh'; else { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/home/siam/.local/share/mise/installs/node/24.15.0/bin/node\" \"/home/siam/.claude/hooks/gsd-prompt-guard.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/home/siam/.local/share/mise/installs/node/24.15.0/bin/node\" \"/home/siam/.claude/hooks/gsd-read-guard.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/home/siam/.local/share/mise/installs/node/24.15.0/bin/node\" \"/home/siam/.claude/hooks/gsd-workflow-guard.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"/home/siam/.claude/hooks/gsd-validate-commit.sh\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/siam/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/siam/.orca/agent-hooks/claude-hook.sh'; else { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/home/siam/.local/share/mise/installs/node/24.15.0/bin/node\" \"/home/siam/.claude/hooks/gsd-check-update.js\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"/home/siam/.claude/hooks/gsd-session-state.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/home/siam/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
             "command": "/home/siam/.local/share/uv/tools/aline-ai/bin/python /home/siam/.local/share/uv/tools/aline-ai/lib/python3.14/site-packages/realign/claude_hooks/stop_hook.py  # aline-stop-hook"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/siam/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/siam/.orca/agent-hooks/claude-hook.sh'; else { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi",
+            "timeout": 10
           }
         ]
       }
@@ -25,7 +162,142 @@
             "command": "/home/siam/.local/share/uv/tools/aline-ai/bin/python /home/siam/.local/share/uv/tools/aline-ai/lib/python3.14/site-packages/realign/claude_hooks/user_prompt_submit_hook.py  # aline-user-prompt-submit-hook"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/siam/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/siam/.orca/agent-hooks/claude-hook.sh'; else { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/siam/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/siam/.orca/agent-hooks/claude-hook.sh'; else { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/siam/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/siam/.orca/agent-hooks/claude-hook.sh'; else { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/siam/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/siam/.orca/agent-hooks/claude-hook.sh'; else { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/siam/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/siam/.orca/agent-hooks/claude-hook.sh'; else { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/siam/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/siam/.orca/agent-hooks/claude-hook.sh'; else { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/siam/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/siam/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/siam/.orca/agent-hooks/claude-hook.sh'; else { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
       }
     ]
-  }
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "node \"/home/siam/.claude/hooks/gsd-statusline.js\""
+  },
+  "enabledPlugins": {
+    "codex@openai-codex": true,
+    "frontend-design@claude-plugins-official": true,
+    "posthog@claude-plugins-official": false,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "ponytail@ponytail": true,
+    "vercel@claude-plugins-official": true,
+    "skills@ai-builder-club": true,
+    "last30days@last30days-skill": true,
+    "ledgercross-blog@ledgercross-blog-studio": true
+  },
+  "extraKnownMarketplaces": {
+    "openai-codex": {
+      "source": {
+        "source": "github",
+        "repo": "openai/codex-plugin-cc"
+      }
+    },
+    "ponytail": {
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail"
+      }
+    },
+    "ai-builder-club": {
+      "source": {
+        "source": "github",
+        "repo": "AI-Builder-Club/skills"
+      }
+    },
+    "last30days-skill": {
+      "source": {
+        "source": "github",
+        "repo": "mvanhorn/last30days-skill"
+      }
+    },
+    "ledgercross-blog-studio": {
+      "source": {
+        "source": "directory",
+        "path": "/home/siam/.local/share/ledgercross-blog-studio"
+      }
+    }
+  },
+  "effortLevel": "high",
+  "pluginConfigs": {},
+  "tui": "fullscreen",
+  "voice": {
+    "enabled": true,
+    "mode": "hold"
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "skipAutoPermissionPrompt": true,
+  "voiceEnabled": true
 }

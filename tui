@@ -96,7 +96,7 @@ ssd_status() {
 }
 
 backup_list() {
-	find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort
+	list_snapshots
 }
 
 latest_backup() {

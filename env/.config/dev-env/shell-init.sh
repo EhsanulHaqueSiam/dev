@@ -33,16 +33,6 @@ if command -v fnm &>/dev/null; then
 	eval "$(fnm env)"
 fi
 
-# Atuin
-if [[ -f "$HOME/.atuin/bin/env" ]]; then
-	. "$HOME/.atuin/bin/env"
-	if [[ "$_shell" == "zsh" ]]; then
-		eval "$(atuin init zsh)"
-	elif [[ "$_shell" == "bash" ]]; then
-		eval "$(atuin init bash)"
-	fi
-fi
-
 # Starship prompt
 if command -v starship &>/dev/null; then
 	export STARSHIP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml"

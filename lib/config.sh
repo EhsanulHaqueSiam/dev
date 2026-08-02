@@ -132,6 +132,23 @@ check_ssd() {
 	mountpoint -q "$SSD" 2>/dev/null
 }
 
+# -----------------------------------------------------------------------
+# Snapshot directories
+#
+# Snapshots are named YYYY-MM-DD_HH-MM-SS. Anything else in $BACKUP_ROOT is
+# not a snapshot and must never be treated as one — a letter-prefixed dir
+# sorts after every timestamp and would otherwise always win "latest".
+# -----------------------------------------------------------------------
+SNAPSHOT_GLOB='20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+
+list_snapshots() {
+	find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -name "$SNAPSHOT_GLOB" 2>/dev/null | sort
+}
+
+latest_snapshot() {
+	list_snapshots | tail -1
+}
+
 # Auto-mount SSD if connected but not mounted
 try_mount_ssd() {
 	# Already mounted

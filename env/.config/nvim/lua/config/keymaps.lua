@@ -1,64 +1,50 @@
--- Custom keymaps (LazyVim provides most defaults)
--- Only truly custom keymaps that LazyVim doesn't provide
+-- Custom keymaps only.
+-- LazyVim already binds gd/gD/gr/gI/gy/K/gK/<C-k>, <leader>ca/cc/cC/cl/cr/cR/cA/co,
+-- window + buffer motions, and the terminal <C-h/j/k/l> splits.
 
 local map = vim.keymap.set
 
 -----------------------------------------------------------------------------
--- GENERAL (custom only)
+-- GENERAL
 -----------------------------------------------------------------------------
--- Clear search highlight
 map("n", "<Esc>", "<cmd>nohlsearch<cr>", { desc = "Clear search highlight" })
 
--- Better paste (don't yank when pasting over selection)
+-- Paste over a selection without clobbering the unnamed register
 map("x", "p", [["_dP]], { desc = "Paste without yanking" })
 
--- Quick quit (force)
 map("n", "<leader>qQ", "<cmd>qa!<cr>", { desc = "Quit all (force)" })
 
--- Join lines without moving cursor
+-- Join lines without moving the cursor
 map("n", "J", "mzJ`z", { desc = "Join lines" })
 
--- Center screen on page up/down
+-- Keep the cursor centred on half-page jumps
 map("n", "<C-d>", "<C-d>zz", { desc = "Page down (centered)" })
 map("n", "<C-u>", "<C-u>zz", { desc = "Page up (centered)" })
 
 -----------------------------------------------------------------------------
--- TERMINAL (custom only - LazyVim provides C-h/j/k/l)
+-- TERMINAL
 -----------------------------------------------------------------------------
 map("t", "<Esc><Esc>", "<C-\\><C-n>", { desc = "Exit terminal mode" })
 map("t", "<C-/>", "<cmd>close<cr>", { desc = "Hide terminal" })
 
 -----------------------------------------------------------------------------
--- LSP (custom only - LazyVim provides gd, gr, ca, etc.)
------------------------------------------------------------------------------
-map("n", "gD", vim.lsp.buf.declaration, { desc = "Go to declaration" })
-map("n", "gK", vim.lsp.buf.signature_help, { desc = "Signature help" })
-map("i", "<C-k>", vim.lsp.buf.signature_help, { desc = "Signature help" })
-map("n", "<leader>cl", vim.lsp.codelens.run, { desc = "Run CodeLens" })
-map("n", "<leader>cL", vim.lsp.codelens.refresh, { desc = "Refresh CodeLens" })
-
------------------------------------------------------------------------------
--- TOGGLE OPTIONS (only ones LazyVim doesn't provide)
--- LazyVim provides: <leader>uw (wrap), <leader>ul (line numbers),
---   <leader>uL (relative numbers), <leader>us (spell), <leader>ud (diagnostics),
---   <leader>uh (inlay hints) — all with Snacks.toggle (shows notification)
+-- TOGGLES (LazyVim covers wrap/numbers/spell/diagnostics/inlay hints)
 -----------------------------------------------------------------------------
 map("n", "<leader>uC", "<cmd>set cursorline!<cr>", { desc = "Toggle cursor line" })
 
 -----------------------------------------------------------------------------
--- MISC (custom only)
+-- MISC
 -----------------------------------------------------------------------------
--- Add blank lines
 map("n", "]<space>", "o<Esc>k", { desc = "Add blank line below" })
 map("n", "[<space>", "O<Esc>j", { desc = "Add blank line above" })
 
--- Better command mode navigation
+-- Readline-ish command-line navigation
 map("c", "<C-a>", "<Home>", { desc = "Start of line" })
 map("c", "<C-e>", "<End>", { desc = "End of line" })
 map("c", "<C-h>", "<Left>", { desc = "Left" })
 map("c", "<C-l>", "<Right>", { desc = "Right" })
 
--- Undo breakpoints
+-- Undo breakpoints, so a long insert isn't one giant undo step
 map("i", ",", ",<c-g>u")
 map("i", ".", ".<c-g>u")
 map("i", ";", ";<c-g>u")

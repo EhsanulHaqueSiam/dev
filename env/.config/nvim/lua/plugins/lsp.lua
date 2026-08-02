@@ -1,43 +1,34 @@
--- Complete LSP configuration
--- MAXIMUM AUTOMATION: LSP attaches automatically, formats on save, auto-imports
+-- LSP configuration.
+--
+-- Deliberately small: LazyVim's lang extras (typescript/vtsls, json, yaml,
+-- tailwind, python, go, rust, ...) already configure their servers, including
+-- inlay hints, schemastore wiring and filetype lists. Only servers that no
+-- extra covers, or that need a machine-specific tweak, belong here.
 return {
-  -----------------------------------------------------------------------------
-  -- NEOCONF: Project-local settings
-  -- AUTOMATED: Loads .neoconf.json automatically
-  -----------------------------------------------------------------------------
   {
     "folke/neoconf.nvim",
     opts = {},
   },
 
-  -----------------------------------------------------------------------------
-  -- NVIM-LSPCONFIG: LSP configuration
-  -- AUTOMATED: Auto-attach, auto-format, auto-import, inlay hints
-  -----------------------------------------------------------------------------
   {
     "neovim/nvim-lspconfig",
     opts = {
       servers = {
-        -- Lua
-        lua_ls = {
-          settings = {
-            Lua = {
-              workspace = { checkThirdParty = false },
-              codeLens = { enable = true },
-              completion = { callSnippet = "Replace" },
-              doc = { privateName = { "^_" } },
-              hint = {
-                enable = true,
-                setType = false,
-                paramType = true,
-                paramName = "Disable",
-                semicolon = "Disable",
-                arrayIndex = "Disable",
-              },
-            },
+        -- LazyVim binds <leader>ca as a *buffer-local* LSP keymap, which wins
+        -- over tiny-code-action's global one in every LSP buffer. Drop it.
+        ["*"] = { keys = { { "<leader>ca", false } } },
+
+        -- Ruby: use the mise-managed ruby-lsp on PATH (writable gem home),
+        -- NOT Mason's (hardcoded to system ruby's read-only gem home).
+        -- mason=false keeps it enabled but skips the broken Mason install.
+        ruby_lsp = { mason = false },
+
+        ruff = {
+          init_options = {
+            settings = { fixAll = true, organizeImports = true },
           },
         },
-        -- Python
+
         pyright = {
           settings = {
             python = {
@@ -51,73 +42,7 @@ return {
             },
           },
         },
-        ruff = {
-          init_options = {
-            settings = {
-              fixAll = true,
-              organizeImports = true,
-            },
-          },
-        },
-        -- Go (requires `go` to be installed: yay -S go)
-        -- gopls = {},
-        -- TypeScript
-        ts_ls = {
-          settings = {
-            typescript = {
-              inlayHints = {
-                includeInlayParameterNameHints = "all",
-                includeInlayParameterNameHintsWhenArgumentMatchesName = false,
-                includeInlayFunctionParameterTypeHints = true,
-                includeInlayVariableTypeHints = true,
-                includeInlayVariableTypeHintsWhenTypeMatchesName = false,
-                includeInlayPropertyDeclarationTypeHints = true,
-                includeInlayFunctionLikeReturnTypeHints = true,
-                includeInlayEnumMemberValueHints = true,
-              },
-              suggest = {
-                includeCompletionsForModuleExports = true,
-                includeAutomaticOptionalChainCompletions = true,
-              },
-              updateImportsOnFileMove = { enabled = "always" },
-            },
-            javascript = {
-              inlayHints = {
-                includeInlayParameterNameHints = "all",
-                includeInlayParameterNameHintsWhenArgumentMatchesName = false,
-                includeInlayFunctionParameterTypeHints = true,
-                includeInlayVariableTypeHints = true,
-                includeInlayPropertyDeclarationTypeHints = true,
-                includeInlayFunctionLikeReturnTypeHints = true,
-                includeInlayEnumMemberValueHints = true,
-              },
-              suggest = {
-                includeCompletionsForModuleExports = true,
-                includeAutomaticOptionalChainCompletions = true,
-              },
-              updateImportsOnFileMove = { enabled = "always" },
-            },
-          },
-        },
-        -- JSON
-        jsonls = {
-          settings = {
-            json = {
-              schemas = require("schemastore").json.schemas(),
-              validate = { enable = true },
-            },
-          },
-        },
-        -- YAML
-        yamlls = {
-          settings = {
-            yaml = {
-              schemaStore = { enable = false, url = "" },
-              schemas = require("schemastore").yaml.schemas(),
-            },
-          },
-        },
-        -- Svelte
+
         svelte = {
           settings = {
             svelte = {
@@ -129,99 +54,109 @@ return {
             },
           },
         },
-        -- Shared capabilities for all servers
-        ["*"] = {
-          capabilities = {
-            textDocument = {
-              foldingRange = { dynamicRegistration = false, lineFoldingOnly = true },
-            },
+
+        emmet_ls = {
+          filetypes = {
+            "html",
+            "css",
+            "scss",
+            "javascriptreact",
+            "typescriptreact",
+            "svelte",
+            "vue",
           },
         },
-        -- Other servers with defaults
-        taplo = {},
+
         marksman = {},
-        dockerls = {},
-        docker_compose_language_service = {},
         cssls = {},
         html = {},
-        tailwindcss = {
-          filetypes = { "html", "css", "scss", "javascript", "javascriptreact", "typescript", "typescriptreact", "svelte", "vue" },
-        },
-        emmet_ls = {
-          filetypes = { "html", "css", "scss", "javascript", "javascriptreact", "typescript", "typescriptreact", "svelte", "vue" },
-        },
         bashls = {},
       },
       inlay_hints = { enabled = true },
       codelens = { enabled = true },
       document_highlight = { enabled = true },
+      -- tiny-inline-diagnostic renders these instead; leaving both on
+      -- double-prints every diagnostic.
+      diagnostics = { virtual_text = false },
     },
   },
 
   -----------------------------------------------------------------------------
-  -- TROUBLE: Diagnostics list
-  -- AUTOMATED: Updates automatically, integrates with quickfix
+  -- TINY-INLINE-DIAGNOSTIC: the diagnostic for the current line, rendered next
+  -- to it without reflowing the buffer (which 0.11's virtual_lines does).
+  -----------------------------------------------------------------------------
+  {
+    "rachartier/tiny-inline-diagnostic.nvim",
+    event = "VeryLazy",
+    priority = 1000,
+    opts = {
+      preset = "modern",
+      options = {
+        show_source = { enabled = true, if_many = true },
+        multilines = { enabled = true, always_show = false },
+        show_all_diags_on_cursorline = false,
+      },
+    },
+  },
+
+  -----------------------------------------------------------------------------
+  -- TINY-CODE-ACTION: preview each code action as a diff before applying it.
+  -- `backend = "vim"` needs nothing extra; switch to "delta" if you install
+  -- git-delta.
+  -----------------------------------------------------------------------------
+  {
+    "rachartier/tiny-code-action.nvim",
+    dependencies = { "folke/snacks.nvim" },
+    event = "LspAttach",
+    opts = { backend = "vim", picker = "snacks" },
+    -- stylua: ignore
+    keys = {
+      { "<leader>ca", function() require("tiny-code-action").code_action() end, mode = { "n", "x" }, desc = "Code Action" },
+    },
+  },
+
+  -----------------------------------------------------------------------------
+  -- TROUBLE: extra lists on top of LazyVim's <leader>xx / <leader>xX.
+  -- <leader>cs stays LazyVim's Outline, <leader>cS its LSP references.
   -----------------------------------------------------------------------------
   {
     "folke/trouble.nvim",
     opts = {
-      auto_close = true, -- Auto-close when no more items
-      auto_open = false,
+      auto_close = true,
       auto_preview = true,
-      auto_refresh = true, -- Auto-refresh on changes
+      auto_refresh = true,
       focus = true,
       modes = {
         lsp = { win = { position = "right" } },
-        diagnostics = { auto_open = false }, -- Don't auto-open diagnostics
+        diagnostics = { auto_open = false },
       },
     },
+    -- stylua: ignore
     keys = {
-      { "<leader>xx", "<cmd>Trouble diagnostics toggle<cr>", desc = "Diagnostics" },
-      { "<leader>xX", "<cmd>Trouble diagnostics toggle filter.buf=0<cr>", desc = "Buffer Diagnostics" },
-      { "<leader>cs", "<cmd>Trouble symbols toggle<cr>", desc = "Symbols" },
-      { "<leader>cS", "<cmd>Trouble lsp toggle<cr>", desc = "LSP References" },
-      { "<leader>xL", "<cmd>Trouble loclist toggle<cr>", desc = "Location List" },
-      { "<leader>xQ", "<cmd>Trouble qflist toggle<cr>", desc = "Quickfix" },
-      { "[q", function()
-        if require("trouble").is_open() then
-          require("trouble").prev({ skip_groups = true, jump = true })
-        else
-          pcall(vim.cmd.cprev)
-        end
-      end, desc = "Previous Item" },
-      { "]q", function()
-        if require("trouble").is_open() then
-          require("trouble").next({ skip_groups = true, jump = true })
-        else
-          pcall(vim.cmd.cnext)
-        end
-      end, desc = "Next Item" },
+      { "<leader>xL", "<cmd>Trouble loclist toggle<cr>", desc = "Location List (Trouble)" },
+      { "<leader>xQ", "<cmd>Trouble qflist toggle<cr>", desc = "Quickfix List (Trouble)" },
     },
   },
 
   -----------------------------------------------------------------------------
-  -- MASON: Auto-install LSP/DAP/Linters
-  -- AUTOMATED: Installs tools automatically
+  -- MASON
+  -- The custom `config` fixes a LazyVim race: its default calls p:install()
+  -- without checking p:is_installing(), which throws when mason's config runs
+  -- twice (startup + first file open). Verified still present in LazyVim 16.
   -----------------------------------------------------------------------------
   {
     "mason-org/mason.nvim",
     opts = {
       ensure_installed = {
-        -- Formatters
-        "stylua",
         "prettier",
-        "shfmt",
         "biome",
-        -- Linters
         "eslint_d",
         "shellcheck",
         "markdownlint",
-        -- DAP
         "debugpy",
         "js-debug-adapter",
       },
       ui = {
-        border = "rounded",
         width = 0.8,
         height = 0.8,
         icons = {
@@ -231,9 +166,6 @@ return {
         },
       },
     },
-    -- Override config to fix LazyVim race condition:
-    -- LazyVim's default config calls p:install() without checking p:is_installing(),
-    -- which crashes when mason's config fires twice (startup + file open).
     config = function(_, opts)
       require("mason").setup(opts)
       local mr = require("mason-registry")
@@ -257,46 +189,30 @@ return {
   },
 
   -----------------------------------------------------------------------------
-  -- TREESITTER: Syntax parsing
-  -- AUTOMATED: Auto-installs parsers, auto-highlights
+  -- TREESITTER
+  -- Only `ensure_installed` is merged here (opts_extend). `auto_install` and
+  -- `incremental_selection` are no-ops on the main branch — highlight/indent/
+  -- folds are LazyVim's own keys and are already enabled by default.
   -----------------------------------------------------------------------------
   {
     "nvim-treesitter/nvim-treesitter",
-    opts = function(_, opts)
-      opts.ensure_installed = vim.list_extend(opts.ensure_installed or {}, {
-        "bash", "c", "css", "dart", "diff", "dockerfile", "git_config",
-        "git_rebase", "gitattributes", "gitcommit", "gitignore", "go",
-        "gomod", "gosum", "gowork", "html", "http", "javascript", "jsdoc",
-        "json", "json5", "jsonc", "lua", "luadoc", "luap", "markdown",
-        "markdown_inline", "python", "query", "regex", "scss", "sql",
-        "svelte", "toml", "tsx", "typescript", "vim", "vimdoc", "xml", "yaml",
-      })
-      opts.auto_install = true -- Auto-install missing parsers
-      opts.highlight = { enable = true }
-      opts.indent = { enable = true }
-      opts.incremental_selection = {
-        enable = true,
-        keymaps = {
-          init_selection = "<C-space>",
-          node_incremental = "<C-space>",
-          scope_incremental = false,
-          node_decremental = "<bs>",
-        },
-      }
-    end,
-  },
-
-  -----------------------------------------------------------------------------
-  -- LSP AUTO-FORMAT: Format on save
-  -- Already configured in formatting.lua, this ensures LSP fallback
-  -----------------------------------------------------------------------------
-
-  -----------------------------------------------------------------------------
-  -- SCHEMASTORE: JSON/YAML schemas
-  -- AUTOMATED: Provides schemas automatically
-  -----------------------------------------------------------------------------
-  {
-    "b0o/schemastore.nvim",
-    lazy = true,
+    opts = {
+      ensure_installed = {
+        "css",
+        "dart",
+        "dockerfile",
+        "git_config",
+        "git_rebase",
+        "gitattributes",
+        "gitcommit",
+        "gitignore",
+        "http",
+        "hyprlang",
+        "json5",
+        "scss",
+        "sql",
+        "svelte",
+      },
+    },
   },
 }

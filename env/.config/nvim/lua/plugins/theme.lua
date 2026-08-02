@@ -1,19 +1,17 @@
--- Theme: load from omarchy if available, otherwise use built-in default
-local omarchy_theme = vim.fn.expand("~/.config/omarchy/current/theme/neovim.lua")
-if vim.fn.filereadable(omarchy_theme) == 1 then
-	return dofile(omarchy_theme)
+-- Theme: follow the current Omarchy theme when there is one, else tokyonight.
+--
+-- Omarchy 4 moved the current-theme dir from ~/.config/omarchy/current/theme
+-- to ~/.local/state/omarchy/current/theme. Check both so this keeps working on
+-- either generation (aether.nvim's hotreload watches both paths too).
+local omarchy = require("config.omarchy")
+
+local spec = omarchy.theme_spec()
+if spec then
+  return spec
 end
 
 -- Fallback: tokyonight
 return {
-	{
-		"folke/tokyonight.nvim",
-		priority = 1000,
-	},
-	{
-		"LazyVim/LazyVim",
-		opts = {
-			colorscheme = "tokyonight-night",
-		},
-	},
+  { "folke/tokyonight.nvim", priority = 1000 },
+  { "LazyVim/LazyVim", opts = { colorscheme = "tokyonight-night" } },
 }

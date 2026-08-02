@@ -1,22 +1,15 @@
--- Editor plugins configuration
--- flash.nvim (default), gitsigns (default), snacks_explorer/picker (extras) handle core editing
--- Only custom overrides and additional plugins here
+-- Editor: motion, navigation, windows, search.
+--
+-- LazyVim extras already install and key-bind dial, harpoon2, illuminate,
+-- inc-rename, mini-files, mini-move, navic, outline, overseer, refactoring and
+-- the snacks picker/explorer. Anything below is either an opts-only tweak on
+-- top of an extra, or a plugin no extra provides.
 return {
   -----------------------------------------------------------------------------
-  -- DIAL: Increment/decrement
+  -- DIAL: <C-a>/<C-x> that understands more than integers
   -----------------------------------------------------------------------------
   {
     "monaqa/dial.nvim",
-    keys = {
-      { "<C-a>", function() require("dial.map").manipulate("increment", "normal") end, desc = "Increment" },
-      { "<C-x>", function() require("dial.map").manipulate("decrement", "normal") end, desc = "Decrement" },
-      { "g<C-a>", function() require("dial.map").manipulate("increment", "gnormal") end, desc = "G-Increment" },
-      { "g<C-x>", function() require("dial.map").manipulate("decrement", "gnormal") end, desc = "G-Decrement" },
-      { "<C-a>", function() require("dial.map").manipulate("increment", "visual") end, mode = "v", desc = "Increment" },
-      { "<C-x>", function() require("dial.map").manipulate("decrement", "visual") end, mode = "v", desc = "Decrement" },
-      { "g<C-a>", function() require("dial.map").manipulate("increment", "gvisual") end, mode = "v", desc = "G-Increment" },
-      { "g<C-x>", function() require("dial.map").manipulate("decrement", "gvisual") end, mode = "v", desc = "G-Decrement" },
-    },
     config = function()
       local augend = require("dial.augend")
       require("dial.config").augends:register_group({
@@ -32,7 +25,6 @@ return {
           augend.date.alias["%H:%M"],
           augend.constant.alias.bool,
           augend.semver.alias.semver,
-          augend.constant.new({ elements = { "true", "false" } }),
           augend.constant.new({ elements = { "True", "False" } }),
           augend.constant.new({ elements = { "TRUE", "FALSE" } }),
           augend.constant.new({ elements = { "yes", "no" } }),
@@ -56,12 +48,13 @@ return {
   },
 
   -----------------------------------------------------------------------------
-  -- HARPOON2: Quick file navigation
+  -- HARPOON
+  -- Everything lives under <leader>h. LazyVim's extra puts the menu on bare
+  -- <leader>h, which the which-key group would shadow, so that one is disabled.
   -----------------------------------------------------------------------------
   {
     "ThePrimeagen/harpoon",
     branch = "harpoon2",
-    dependencies = { "nvim-lua/plenary.nvim" },
     opts = {
       settings = {
         save_on_toggle = true,
@@ -71,7 +64,9 @@ return {
         end,
       },
     },
+    -- stylua: ignore
     keys = {
+      { "<leader>h", false },
       { "<leader>ha", function() require("harpoon"):list():add() end, desc = "Harpoon Add" },
       { "<leader>hh", function() require("harpoon").ui:toggle_quick_menu(require("harpoon"):list()) end, desc = "Harpoon Menu" },
       { "<leader>h1", function() require("harpoon"):list():select(1) end, desc = "Harpoon File 1" },
@@ -89,80 +84,39 @@ return {
   },
 
   -----------------------------------------------------------------------------
-  -- ILLUMINATE: Highlight word under cursor
+  -- ILLUMINATE
   -----------------------------------------------------------------------------
   {
     "RRethy/vim-illuminate",
     opts = {
       delay = 200,
       large_file_cutoff = 2000,
-      large_file_overrides = {
-        providers = { "lsp" },
-      },
-      filetypes_denylist = {
-        "dirbuf", "dirvish", "fugitive", "alpha",
-        "lazy", "mason", "minifiles", "Trouble",
-        "dashboard", "snacks_picker", "help", "terminal",
-      },
+      large_file_overrides = { providers = { "lsp" } },
       under_cursor = true,
       min_count_to_highlight = 2,
     },
   },
 
   -----------------------------------------------------------------------------
-  -- INC-RENAME: Incremental LSP renaming
-  -----------------------------------------------------------------------------
-  {
-    "smjonas/inc-rename.nvim",
-    dependencies = { "folke/noice.nvim" },
-    opts = {
-      input_buffer_type = nil,
-    },
-    keys = {
-      { "<leader>cr", function()
-        return ":IncRename " .. vim.fn.expand("<cword>")
-      end, expr = true, desc = "Rename (inc)" },
-    },
-  },
-
-  -----------------------------------------------------------------------------
-  -- MINI.FILES: File explorer
+  -- MINI.FILES: `-` opens the directory of the current file
   -----------------------------------------------------------------------------
   {
     "nvim-mini/mini.files",
     opts = {
-      windows = {
-        preview = true,
-        width_focus = 30,
-        width_preview = 50,
-      },
+      windows = { preview = true, width_focus = 30, width_preview = 50 },
       options = {
-        use_as_default_explorer = false, -- snacks_explorer is default
+        use_as_default_explorer = false, -- snacks explorer is the default
         permanent_delete = false,
       },
-      mappings = {
-        close = "q",
-        go_in = "l",
-        go_in_plus = "<CR>",
-        go_out = "h",
-        go_out_plus = "H",
-        reset = "<BS>",
-        reveal_cwd = "@",
-        show_help = "g?",
-        synchronize = "=",
-        trim_left = "<",
-        trim_right = ">",
-      },
     },
+    -- stylua: ignore
     keys = {
-      { "<leader>fm", function() require("mini.files").open(vim.api.nvim_buf_get_name(0), true) end, desc = "Mini Files (file)" },
-      { "<leader>fM", function() require("mini.files").open(vim.uv.cwd(), true) end, desc = "Mini Files (cwd)" },
       { "-", function() require("mini.files").open(vim.api.nvim_buf_get_name(0), true) end, desc = "Open Mini Files" },
     },
   },
 
   -----------------------------------------------------------------------------
-  -- MINI.MOVE: Move lines/blocks
+  -- MINI.MOVE: <M-hjkl> moves the line or selection
   -----------------------------------------------------------------------------
   {
     "nvim-mini/mini.move",
@@ -177,49 +131,12 @@ return {
         line_down = "<M-j>",
         line_up = "<M-k>",
       },
-      options = {
-        reindent_linewise = true,
-      },
-    },
-    keys = {
-      { "<M-h>", mode = { "n", "v" }, desc = "Move Left" },
-      { "<M-j>", mode = { "n", "v" }, desc = "Move Down" },
-      { "<M-k>", mode = { "n", "v" }, desc = "Move Up" },
-      { "<M-l>", mode = { "n", "v" }, desc = "Move Right" },
+      options = { reindent_linewise = true },
     },
   },
 
   -----------------------------------------------------------------------------
-  -- NAVIC: Breadcrumbs
-  -----------------------------------------------------------------------------
-  {
-    "SmiteshP/nvim-navic",
-    lazy = true,
-    opts = {
-      separator = " > ",
-      highlight = true,
-      depth_limit = 5,
-      depth_limit_indicator = "...",
-      safe_output = true,
-      lazy_update_context = true,
-      click = true,
-    },
-    init = function()
-      vim.g.navic_silence = true
-      vim.api.nvim_create_autocmd("LspAttach", {
-        callback = function(args)
-          local client = vim.lsp.get_client_by_id(args.data.client_id)
-          local buffer = args.buf
-          if client and client.supports_method("textDocument/documentSymbol") then
-            require("nvim-navic").attach(client, buffer)
-          end
-        end,
-      })
-    end,
-  },
-
-  -----------------------------------------------------------------------------
-  -- OUTLINE: Code outline view
+  -- OUTLINE (<leader>cs from the LazyVim extra)
   -----------------------------------------------------------------------------
   {
     "hedyhli/outline.nvim",
@@ -229,167 +146,206 @@ return {
         width = 30,
         relative_width = false,
         auto_close = false,
-        auto_jump = false,
         show_cursorline = true,
         hide_cursor = true,
       },
-      preview_window = {
-        auto_preview = true,
-        open_hover_on_preview = true,
-        width = 50,
-        min_width = 50,
-        relative_width = true,
-        border = "rounded",
-      },
-      symbol_folding = {
-        autofold_depth = 1,
-        auto_unfold = { hovered = true },
-        markers = { "", "" },
-      },
-      keymaps = {
-        close = { "<Esc>", "q" },
-        goto_location = "<CR>",
-        peek_location = "o",
-        goto_and_close = "<S-CR>",
-        restore_location = "<C-g>",
-        hover_symbol = "K",
-        toggle_preview = "p",
-        rename_symbol = "r",
-        code_actions = "a",
-        fold = "h",
-        unfold = "l",
-        fold_toggle = "<Tab>",
-        fold_toggle_all = "<S-Tab>",
-        fold_all = "W",
-        unfold_all = "E",
-        fold_reset = "R",
-        down_and_jump = "<C-j>",
-        up_and_jump = "<C-k>",
-      },
-    },
-    keys = {
-      { "<leader>co", "<cmd>Outline<cr>", desc = "Toggle Outline" },
+      preview_window = { auto_preview = true, open_hover_on_preview = true },
+      symbol_folding = { autofold_depth = 1, auto_unfold = { hovered = true } },
     },
   },
 
   -----------------------------------------------------------------------------
-  -- OVERSEER: Task runner
+  -- OVERSEER (<leader>ow / oo / ot from the LazyVim extra)
   -----------------------------------------------------------------------------
   {
     "stevearc/overseer.nvim",
     opts = {
       strategy = "terminal",
-      templates = { "builtin" },
-      task_list = {
-        direction = "bottom",
-        min_height = 10,
-        max_height = 20,
-        default_detail = 1,
-        bindings = {
-          ["?"] = "ShowHelp",
-          ["g?"] = "ShowHelp",
-          ["<CR>"] = "RunAction",
-          ["<C-e>"] = "Edit",
-          ["o"] = "Open",
-          ["<C-v>"] = "OpenVsplit",
-          ["<C-s>"] = "OpenSplit",
-          ["<C-f>"] = "OpenFloat",
-          ["<C-q>"] = "OpenQuickFix",
-          ["p"] = "TogglePreview",
-          ["<C-l>"] = "IncreaseDetail",
-          ["<C-h>"] = "DecreaseDetail",
-          ["L"] = "IncreaseAllDetail",
-          ["H"] = "DecreaseAllDetail",
-          ["["] = "DecreaseWidth",
-          ["]"] = "IncreaseWidth",
-          ["{"] = "PrevTask",
-          ["}"] = "NextTask",
-          ["<C-k>"] = "ScrollOutputUp",
-          ["<C-j>"] = "ScrollOutputDown",
-          ["q"] = "Close",
-        },
-      },
-      component_aliases = {
-        default = {
-          { "display_duration", detail_level = 2 },
-          "on_output_summarize",
-          "on_exit_set_status",
-          "on_complete_notify",
-          "on_complete_dispose",
-        },
-      },
+      task_list = { direction = "bottom", min_height = 10, max_height = 20 },
       dap = true,
     },
+  },
+
+  -----------------------------------------------------------------------------
+  -- FLASH: LazyVim binds s/S/f/t; these add the treesitter + remote modes
+  -----------------------------------------------------------------------------
+  {
+    "folke/flash.nvim",
+    opts = {
+      label = { rainbow = { enabled = true, shade = 5 } },
+      modes = { search = { enabled = false } }, -- hlslens owns / and ?
+    },
+    -- stylua: ignore
     keys = {
-      { "<leader>ot", "<cmd>OverseerToggle<cr>", desc = "Overseer Toggle" },
-      { "<leader>or", "<cmd>OverseerRun<cr>", desc = "Overseer Run" },
-      { "<leader>oR", "<cmd>OverseerRunCmd<cr>", desc = "Overseer Run Cmd" },
-      { "<leader>ob", "<cmd>OverseerBuild<cr>", desc = "Overseer Build" },
-      { "<leader>oq", "<cmd>OverseerQuickAction<cr>", desc = "Overseer Quick Action" },
-      { "<leader>oa", "<cmd>OverseerTaskAction<cr>", desc = "Overseer Task Action" },
-      { "<leader>oi", "<cmd>OverseerInfo<cr>", desc = "Overseer Info" },
-      { "<leader>oc", "<cmd>OverseerClearCache<cr>", desc = "Overseer Clear Cache" },
+      { "S", function() require("flash").treesitter() end, mode = { "n", "x", "o" }, desc = "Flash Treesitter" },
+      { "r", function() require("flash").remote() end, mode = "o", desc = "Remote Flash" },
+      { "R", function() require("flash").treesitter_search() end, mode = { "o", "x" }, desc = "Treesitter Search" },
     },
   },
 
   -----------------------------------------------------------------------------
-  -- REFACTORING: Code refactoring
+  -- HLSLENS: match count next to the cursor while searching
   -----------------------------------------------------------------------------
   {
-    "ThePrimeagen/refactoring.nvim",
-    dependencies = {
-      "nvim-lua/plenary.nvim",
-      "nvim-treesitter/nvim-treesitter",
-    },
+    "kevinhwang91/nvim-hlslens",
+    event = "VeryLazy",
+    opts = { calm_down = true, nearest_only = false, nearest_float_when = "auto" },
+    config = function(_, opts)
+      require("hlslens").setup(opts)
+      local map = vim.keymap.set
+      -- stylua: ignore start
+      map("n", "n", [[<Cmd>execute('normal! ' . v:count1 . 'n')<CR>zz<Cmd>lua require('hlslens').start()<CR>]], { desc = "Next match" })
+      map("n", "N", [[<Cmd>execute('normal! ' . v:count1 . 'N')<CR>zz<Cmd>lua require('hlslens').start()<CR>]], { desc = "Prev match" })
+      map("n", "*",  [[*<Cmd>lua require('hlslens').start()<CR>]],  { desc = "Search word forward" })
+      map("n", "#",  [[#<Cmd>lua require('hlslens').start()<CR>]],  { desc = "Search word backward" })
+      map("n", "g*", [[g*<Cmd>lua require('hlslens').start()<CR>]], { desc = "Search word forward (partial)" })
+      map("n", "g#", [[g#<Cmd>lua require('hlslens').start()<CR>]], { desc = "Search word backward (partial)" })
+      -- stylua: ignore end
+    end,
+  },
+
+  -----------------------------------------------------------------------------
+  -- BQF: preview + fzf filtering inside the quickfix window
+  -----------------------------------------------------------------------------
+  {
+    "kevinhwang91/nvim-bqf",
+    ft = "qf",
     opts = {
-      prompt_func_return_type = {
-        go = true,
-        cpp = true,
-        c = true,
-        java = true,
+      auto_enable = true,
+      auto_resize_height = true,
+      preview = {
+        win_height = 12,
+        win_vheight = 12,
+        delay_syntax = 80,
+        show_title = true,
+        should_preview_cb = function(bufnr)
+          local bufname = vim.api.nvim_buf_get_name(bufnr)
+          return vim.fn.getfsize(bufname) <= 100 * 1024 and not bufname:match("^fugitive://")
+        end,
       },
-      prompt_func_param_type = {
-        go = true,
-        cpp = true,
-        c = true,
-        java = true,
-      },
-      printf_statements = {},
-      print_var_statements = {},
-      show_success_message = true,
-    },
-    keys = {
-      { "<leader>re", function() require("refactoring").refactor("Extract Function") end, mode = "x", desc = "Extract Function" },
-      { "<leader>rf", function() require("refactoring").refactor("Extract Function To File") end, mode = "x", desc = "Extract to File" },
-      { "<leader>rv", function() require("refactoring").refactor("Extract Variable") end, mode = "x", desc = "Extract Variable" },
-      { "<leader>rI", function() require("refactoring").refactor("Inline Function") end, desc = "Inline Function" },
-      { "<leader>ri", function() require("refactoring").refactor("Inline Variable") end, mode = { "n", "x" }, desc = "Inline Variable" },
-      { "<leader>rb", function() require("refactoring").refactor("Extract Block") end, desc = "Extract Block" },
-      { "<leader>rB", function() require("refactoring").refactor("Extract Block To File") end, desc = "Extract Block to File" },
-      { "<leader>rr", function() require("refactoring").select_refactor() end, mode = { "n", "x" }, desc = "Select Refactor" },
-      { "<leader>rp", function() require("refactoring").debug.printf({ below = true }) end, desc = "Debug Printf" },
-      { "<leader>rP", function() require("refactoring").debug.print_var() end, mode = { "n", "x" }, desc = "Debug Print Var" },
-      { "<leader>rc", function() require("refactoring").debug.cleanup() end, desc = "Debug Cleanup" },
     },
   },
 
   -----------------------------------------------------------------------------
-  -- SNACKS: Custom overrides only (explorer/picker/notifier/etc from extras)
-  -- Only adding settings that differ from LazyVim defaults
+  -- GRUG-FAR: LazyVim binds <leader>sr; this adds the current-file variant
   -----------------------------------------------------------------------------
   {
-    "folke/snacks.nvim",
-    opts = {
-      zen = {
-        toggles = { dim = true, git_signs = false, diagnostics = false },
-      },
-      scroll = { enabled = false },
-      indent = { enabled = false },
-    },
+    "MagicDuck/grug-far.nvim",
+    -- stylua: ignore
     keys = {
-      -- Zen
-      { "<leader>z", function() Snacks.zen() end, desc = "Zen Mode" },
-      { "<leader>Z", function() Snacks.zen.zoom() end, desc = "Zoom" },
+      { "<leader>sR", function() require("grug-far").open({ transient = true, prefills = { paths = vim.fn.expand("%") } }) end, desc = "Search and Replace (file)" },
     },
+  },
+
+  -----------------------------------------------------------------------------
+  -- GOTO-PREVIEW: peek definitions in a float instead of jumping
+  -----------------------------------------------------------------------------
+  {
+    "rmagatti/goto-preview",
+    event = "LspAttach",
+    opts = { width = 120, height = 25, default_mappings = false },
+    -- stylua: ignore
+    keys = {
+      { "gpd", function() require("goto-preview").goto_preview_definition() end, desc = "Preview Definition" },
+      { "gpt", function() require("goto-preview").goto_preview_type_definition() end, desc = "Preview Type Def" },
+      { "gpi", function() require("goto-preview").goto_preview_implementation() end, desc = "Preview Implementation" },
+      { "gpr", function() require("goto-preview").goto_preview_references() end, desc = "Preview References" },
+      { "gP",  function() require("goto-preview").close_all_win() end, desc = "Close All Previews" },
+    },
+  },
+
+  -----------------------------------------------------------------------------
+  -- UNDOTREE
+  -----------------------------------------------------------------------------
+  {
+    "mbbill/undotree",
+    cmd = "UndotreeToggle",
+    keys = { { "<leader>uu", "<cmd>UndotreeToggle<cr>", desc = "Undo Tree" } },
+    init = function()
+      vim.g.undotree_WindowLayout = 2
+      vim.g.undotree_ShortIndicators = 1
+      vim.g.undotree_SplitWidth = 30
+      vim.g.undotree_DiffpanelHeight = 10
+      vim.g.undotree_SetFocusWhenToggle = 1
+      vim.g.undotree_DiffAutoOpen = 1
+      vim.g.undotree_HighlightChangedText = 1
+      vim.g.undotree_HelpLine = 0
+    end,
+  },
+
+  -----------------------------------------------------------------------------
+  -- TREESJ: split / join argument lists, tables, objects
+  -----------------------------------------------------------------------------
+  {
+    "Wansmer/treesj",
+    opts = { use_default_keymaps = false, max_join_length = 150 },
+    -- stylua: ignore
+    keys = {
+      { "<leader>cj", function() require("treesj").toggle() end, desc = "Split/Join Toggle" },
+      { "<leader>cJ", function() require("treesj").toggle({ split = { recursive = true } }) end, desc = "Split/Join Recursive" },
+    },
+  },
+
+  -----------------------------------------------------------------------------
+  -- MARKS: show marks in the sign column, m] / m[ to cycle
+  -----------------------------------------------------------------------------
+  {
+    "chentoast/marks.nvim",
+    event = "VeryLazy",
+    opts = {
+      default_mappings = true,
+      builtin_marks = { ".", "<", ">", "^" },
+      cyclic = true,
+      sign_priority = { lower = 10, upper = 15, builtin = 8, bookmark = 20 },
+      mappings = {
+        set_next = "m,",
+        next = "m]",
+        prev = "m[",
+        preview = "m:",
+        delete_line = "dm-",
+        delete_buf = "dm<space>",
+      },
+    },
+  },
+
+  -----------------------------------------------------------------------------
+  -- MATCHUP: % across keywords (if/end, do/done, tags), off-screen match popup
+  -----------------------------------------------------------------------------
+  {
+    "andymass/vim-matchup",
+    event = "VeryLazy",
+    init = function()
+      vim.g.matchup_matchparen_offscreen = { method = "popup" }
+      vim.g.matchup_matchparen_deferred = 1
+      vim.g.matchup_matchparen_hi_surround_always = 1
+    end,
+  },
+
+  -----------------------------------------------------------------------------
+  -- BETTER-ESCAPE: jk / jj without the timeoutlen pause
+  -----------------------------------------------------------------------------
+  {
+    "max397574/better-escape.nvim",
+    event = "InsertEnter",
+    opts = {
+      timeout = 200,
+      default_mappings = false,
+      mappings = {
+        i = { j = { k = "<Esc>", j = "<Esc>" } },
+        c = { j = { k = "<Esc>", j = "<Esc>" } },
+        t = { j = { k = "<C-\\><C-n>" } },
+        v = { j = { k = "<Esc>" } },
+        s = { j = { k = "<Esc>" } },
+      },
+    },
+  },
+
+  -----------------------------------------------------------------------------
+  -- VIM-BE-GOOD: motion drills
+  -----------------------------------------------------------------------------
+  {
+    "ThePrimeagen/vim-be-good",
+    cmd = "VimBeGood",
+    keys = { { "<leader>uV", "<cmd>VimBeGood<cr>", desc = "Vim Be Good" } },
   },
 }

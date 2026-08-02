@@ -19,3 +19,6 @@ skills-lib/
 *.swp
 *.swo
 *~
+
+# Bitwarden session token — never commit (dev-env update captures ~/.config/dev-env/)
+env/.config/dev-env/.bw_session

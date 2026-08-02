@@ -1,50 +1,40 @@
--- Custom autocmds (LazyVim provides many defaults)
--- Only custom ones that LazyVim doesn't provide
+-- Custom autocmds. LazyVim already provides: checktime, highlight-on-yank,
+-- resize-splits, last-loc, close-with-q, man-unlisted, wrap+spell, json
+-- conceal and auto-create-dir. snacks.bigfile handles large files. Only add
+-- what's genuinely missing.
 
 local function augroup(name)
   return vim.api.nvim_create_augroup("custom_" .. name, { clear = true })
 end
 
 -----------------------------------------------------------------------------
--- AUTO-SAVE: Save files automatically
+-- AUTO-SAVE
+-- Deliberately NOT on TextChanged: every normal-mode edit (including `u`)
+-- would then trip BufWritePre, and format-on-save would reformat and move the
+-- cursor while you work. Leaving insert / the buffer / the window is enough.
 -----------------------------------------------------------------------------
-vim.api.nvim_create_autocmd({ "InsertLeave", "TextChanged" }, {
+vim.api.nvim_create_autocmd({ "InsertLeave", "BufLeave", "FocusLost" }, {
   group = augroup("auto_save"),
-  pattern = "*",
   callback = function(event)
-    local bufnr = event.buf
-    if not vim.bo[bufnr].modifiable then return end
-    if vim.bo[bufnr].buftype ~= "" then return end
-    if vim.bo[bufnr].readonly then return end
-    local filename = vim.api.nvim_buf_get_name(bufnr)
-    if filename == "" then return end
-    if vim.fn.mode() == "c" or vim.fn.mode() == "o" then return end
-    vim.defer_fn(function()
-      if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].modified then
-        vim.api.nvim_buf_call(bufnr, function()
-          vim.cmd("silent! update")
-        end)
-      end
-    end, 500)
+    local buf = event.buf
+    if not (vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].modified) then
+      return
+    end
+    if vim.bo[buf].buftype ~= "" or not vim.bo[buf].modifiable or vim.bo[buf].readonly then
+      return
+    end
+    if vim.api.nvim_buf_get_name(buf) == "" then
+      return
+    end
+    vim.api.nvim_buf_call(buf, function()
+      vim.cmd("silent! lockmarks update")
+    end)
   end,
-  desc = "Auto-save on insert leave or text change",
+  desc = "Auto-save on leaving insert/buffer/window",
 })
 
 -----------------------------------------------------------------------------
--- AUTO-CREATE DIRECTORIES: Create parent dirs when saving
------------------------------------------------------------------------------
-vim.api.nvim_create_autocmd("BufWritePre", {
-  group = augroup("auto_create_dir"),
-  callback = function(event)
-    if event.match:match("^%w%w+:[\\/][\\/]") then return end
-    local file = vim.uv.fs_realpath(event.match) or event.match
-    vim.fn.mkdir(vim.fn.fnamemodify(file, ":p:h"), "p")
-  end,
-  desc = "Auto-create parent directories when saving",
-})
-
------------------------------------------------------------------------------
--- AUTO-CURSORLINE: Only show cursorline in active window
+-- CURSORLINE: only in the active window
 -----------------------------------------------------------------------------
 vim.api.nvim_create_autocmd({ "WinEnter", "BufEnter", "InsertLeave" }, {
   group = augroup("cursorline_active"),
@@ -69,38 +59,18 @@ vim.api.nvim_create_autocmd({ "WinLeave", "BufLeave", "InsertEnter" }, {
 })
 
 -----------------------------------------------------------------------------
--- AUTO-FORMAT-OPTIONS: Fix formatoptions on FileType
+-- Don't auto-insert the comment leader on Enter or o/O
 -----------------------------------------------------------------------------
 vim.api.nvim_create_autocmd("FileType", {
   group = augroup("fix_formatoptions"),
   callback = function()
     vim.opt_local.formatoptions:remove({ "r", "o" })
   end,
-  desc = "Don't auto-insert comment leader on Enter or o/O",
+  desc = "No comment continuation on <CR> / o / O",
 })
 
 -----------------------------------------------------------------------------
--- AUTO-LARGE-FILE: Disable features for large files
------------------------------------------------------------------------------
-vim.api.nvim_create_autocmd("BufReadPre", {
-  group = augroup("large_file"),
-  callback = function(event)
-    local file = event.match
-    local size = vim.fn.getfsize(file)
-    if size > 1024 * 1024 then -- 1MB
-      vim.b[event.buf].large_file = true
-      vim.opt_local.swapfile = false
-      vim.opt_local.undofile = false
-      vim.opt_local.syntax = "off"
-      vim.opt_local.foldmethod = "manual"
-      vim.cmd("syntax clear")
-    end
-  end,
-  desc = "Disable features for large files",
-})
-
------------------------------------------------------------------------------
--- AUTO-TERMINAL: Terminal specific settings
+-- TERMINAL
 -----------------------------------------------------------------------------
 vim.api.nvim_create_autocmd("TermOpen", {
   group = augroup("term_settings"),
@@ -115,7 +85,7 @@ vim.api.nvim_create_autocmd("TermOpen", {
 })
 
 -----------------------------------------------------------------------------
--- AUTO-QUICKFIX: Auto-open quickfix/loclist when populated
+-- QUICKFIX / LOCLIST: open when populated
 -----------------------------------------------------------------------------
 vim.api.nvim_create_autocmd("QuickFixCmdPost", {
   group = augroup("quickfix_auto_open"),
@@ -133,24 +103,4 @@ vim.api.nvim_create_autocmd("QuickFixCmdPost", {
     vim.cmd("lwindow")
   end,
   desc = "Auto-open location list",
-})
-
------------------------------------------------------------------------------
--- AUTO-LSP-CODELENS: Auto-refresh code lens
------------------------------------------------------------------------------
-vim.api.nvim_create_autocmd("LspAttach", {
-  group = augroup("lsp_codelens"),
-  callback = function(event)
-    local client = vim.lsp.get_client_by_id(event.data.client_id)
-    if client and client.supports_method("textDocument/codeLens") then
-      vim.api.nvim_create_autocmd({ "BufEnter", "CursorHold", "InsertLeave" }, {
-        group = vim.api.nvim_create_augroup("lsp_codelens_" .. event.buf, { clear = true }),
-        buffer = event.buf,
-        callback = function()
-          vim.lsp.codelens.refresh({ bufnr = event.buf })
-        end,
-      })
-    end
-  end,
-  desc = "Auto-refresh code lens",
 })

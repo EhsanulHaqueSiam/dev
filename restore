@@ -81,6 +81,16 @@ if ! [[ "$jobs" =~ ^[1-9][0-9]*$ ]]; then
 	exit 1
 fi
 
+# Targets are pasted straight onto $HOME. "", ".", ".." and absolute paths would
+# splat the whole backup into the home directory or escape it entirely.
+for t in "${targets[@]}"; do
+	if [[ -z "$t" || "$t" == "." || "$t" == ".." || "$t" == /* || "$t" == *".."* ]]; then
+		err "invalid target: '$t'"
+		err "targets are paths relative to \$HOME, e.g. Personal or Personal/dev"
+		exit 1
+	fi
+done
+
 # -----------------------------------------------------------------------
 # Check dependencies
 # -----------------------------------------------------------------------
@@ -133,7 +143,7 @@ if [[ -n "$from_backup" ]]; then
 		exit 1
 	fi
 else
-	backup_dir=$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+	backup_dir=$(latest_snapshot)
 	if [[ -z "$backup_dir" ]]; then
 		err "no backups found in $BACKUP_ROOT"
 		exit 1
@@ -270,7 +280,6 @@ for target in "${targets[@]}"; do
 	# ---------------------------------------------------------------
 	if [[ $dry_run -eq 1 ]]; then
 		info "restoring $target (dry run)..."
-		mkdir -p "$dest_path"
 		rsync "${RSYNC_FLAGS[@]}" --dry-run -v \
 			"$src_path/" "$dest_path/" 2>&1 | tail -5
 		log "done: $target (dry run)"

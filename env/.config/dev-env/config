@@ -1,0 +1,4 @@
+SSD_PATH="/run/media/siam/TRANSCEND"
+SSD_PATHS="/run/media/siam/TRANSCEND"
+PROJECTS_DIR="/home/siam/Personal"
+SOURCES="Personal,Work,.config"

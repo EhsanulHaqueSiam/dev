@@ -1,0 +1,164 @@
+### FIXED - Arch Linux + RTX 4060 Mobile + i7-13700H ###
+
+# Video Output - Enhanced for RTX 4060 Mobile
+vo=gpu-next,gpu
+gpu-api=opengl
+gpu-context=wayland
+hwdec=nvdec-copy
+hwdec-codecs=all
+profile=gpu-hq
+vd-lavc-dr=yes
+opengl-pbo=yes
+
+# Window Settings
+force-window=yes
+keep-open=yes
+border=yes
+
+# High-Quality Video Processing - Enhanced
+video-sync=display-resample
+interpolation=yes
+tscale=oversample
+scale=ewa_lanczossharp
+scale-antiring=0.7
+cscale=ewa_lanczos
+cscale-antiring=0.9
+dscale=lanczos
+dscale-antiring=0.8
+correct-downscaling=yes
+linear-downscaling=no
+sigmoid-upscaling=yes
+deband=yes
+deband-iterations=3
+deband-threshold=32
+deband-range=24
+deband-grain=8
+temporal-dither=yes
+dither-depth=auto
+
+# Optimized Cache for 16GB RAM - Enhanced
+cache=yes
+demuxer-max-bytes=400MiB
+demuxer-max-back-bytes=150MiB
+demuxer-readahead-secs=45
+cache-secs=20
+demuxer-seekable-cache=yes
+cache-pause-initial=yes
+
+# Enhanced Audio Settings - PipeWire optimized
+audio-device=auto
+audio-exclusive=no
+volume=70
+volume-max=150
+audio-pitch-correction=yes
+audio-channels=stereo,5.1,7.1
+audio-buffer=0.15
+audio-stream-silence=yes
+audio-wait-open=2.0
+
+# Language Preferences
+alang=ja,jp,jpn,japanese,en,eng,english
+slang=en,eng,english,ja,jp,jpn,japanese
+
+# Subtitle Settings
+sub-auto=fuzzy
+sub-file-paths=sub:subs:subtitles:Subs:Subtitles
+audio-file-auto=fuzzy
+sub-fix-timing=yes
+blend-subtitles=yes
+sub-ass-override=force
+demuxer-mkv-subtitle-preroll=yes
+
+# Power Management & Battery Optimization
+# battery-profile option doesn't exist, using conditional profiles instead
+
+# IPC & Interface
+input-ipc-server=/tmp/mpv-socket
+osc=no
+osd-bar=no
+border=yes
+force-window=yes
+idle=yes
+
+# File Management
+keep-open=yes
+save-position-on-quit=yes
+watch-later-dir="~~/cache/watch_later"
+gpu-shader-cache-dir="~~/cache/shaders_cache"
+
+# Screenshot Settings
+screenshot-format=png
+screenshot-png-compression=8
+screenshot-directory="~/Pictures/mpv-screenshots"
+
+### Profile Includes ###
+include="~~/profiles.conf"
+
+### Subtitle Styling - Clean & Modern ###
+sub-font="Noto Sans"
+sub-font-size=52
+sub-color="#FFFFFF"
+sub-border-color="#000000"
+sub-border-size=2.4
+sub-shadow-offset=1
+sub-shadow-color="#33000000"
+sub-spacing=0.5
+sub-margin-x=25
+sub-margin-y=50
+sub-scale=0.9
+
+### OSD Styling ###
+osd-font="JetBrains Mono"
+osd-font-size=32
+osd-color="#FFFFFF"
+osd-border-color="#000000"
+osd-border-size=1.5
+osd-shadow-offset=1
+osd-shadow-color="#33000000"
+osd-spacing=0.25
+osd-margin-x=25
+osd-margin-y=25
+
+### Audio Enhancement (Toggle with 'a' key) ###
+# Simple volume normalization for laptop speakers
+af-toggle=@normalize:dynaudnorm=g=5:f=250:r=0.9:p=0.5
+
+# Key bindings are now in input.conf file
+### Performance Optimizations ###
+# Threading and processing
+vd-lavc-threads=0
+ad-lavc-threads=4
+vd-lavc-assume-old-x264=no
+
+# Memory and I/O optimizations
+stream-buffer-size=4MiB
+network-timeout=60
+user-agent="mpv/0.40.0"
+
+# Display optimizations
+display-fps-override=60
+video-timing-offset=0.050
+
+# Subtitle optimizations
+sub-gauss=0.6
+sub-gray=yes
+sub-fix-timing=yes
+blend-subtitles=video
+
+# Advanced video processing
+video-output-levels=full
+target-colorspace-hint=yes
+# icc-profile-auto disabled - compositor doesn't support ICC profiles
+
+# Network streaming optimizations
+hls-bitrate=max
+ytdl-format=bestvideo[height<=?1440]+bestaudio/best
+
+### Conditional Optimizations ###
+# Enable Vulkan for specific profiles only
+[Vulkan-Mode]
+profile-desc=Vulkan mode for maximum performance
+gpu-api=vulkan
+vulkan-async-compute=yes
+vulkan-async-transfer=yes
+vulkan-queue-count=2

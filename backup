@@ -19,8 +19,10 @@ DEFAULT_KEEP=2
 DEFAULT_JOBS=4
 
 # Excludes for rsync
+#
+# .git/ is deliberately NOT excluded: a backup that drops it restores working
+# trees with no history, no stashes and no un-pushed branches.
 EXCLUDES=(
-	.git/
 	node_modules/
 	__pycache__/
 	.venv/
@@ -40,6 +42,23 @@ EXCLUDES=(
 	wandb/
 	.uv-cache/
 	.plugin_symlinks/
+
+	# ~/.config only. Anchored with a leading / so they match the top level of
+	# a source and are simply inert for the others.
+	# Browser profiles and app caches — bulk, and they hold live session cookies:
+	/zen
+	/orca
+	/chromium
+	/net.imput.helium
+	/heroic
+	/Antigravity
+	/netlify
+	/deepchainlabs-desktop
+	# Credential and message stores — an exFAT drive keeps no permissions, so
+	# anything here would sit world-readable on a stick in a drawer:
+	/1Password
+	/Bitwarden
+	/Signal
 )
 
 # exFAT-optimized rsync flags:
@@ -121,6 +140,10 @@ while [[ $# -gt 0 ]]; do
 			EOF
 			exit 0
 			;;
+		-*)
+			err "unknown option: $1  (see --help)"
+			exit 1
+			;;
 		*)        targets+=("$1") ;;
 	esac
 	shift
@@ -144,6 +167,40 @@ if command -v ionice &>/dev/null; then
 	use_ionice=1
 fi
 
+# Run rsync at low I/O priority when possible, so a backup doesn't stall the desktop
+nice_rsync=(rsync)
+[[ $use_ionice -eq 1 ]] && nice_rsync=(ionice -c 2 -n 0 rsync)
+
+# rsync stderr from the parallel workers lands here so failures are reported
+# instead of being swallowed by >/dev/null
+ERRLOG=$(mktemp -t backup-errors.XXXXXX)
+trap 'rm -f "$ERRLOG"' EXIT
+
+# Classify an rsync exit code.
+#   0  clean
+#   23 partial transfer — individual files could not be written (on exFAT that
+#      is usually a filename containing : " * ? < > | ). The snapshot is
+#      otherwise complete, so this does not fail the run — but the offending
+#      files get named from $ERRLOG instead of vanishing silently.
+#   *  real failure — fails the run, which also blocks pruning
+reap_rsync() {
+	case "$1" in
+		0|23) return 0 ;;
+		*)    return 1 ;;
+	esac
+}
+
+# Print whatever rsync complained about, if anything
+report_errlog() {
+	local lines
+	# `|| true`: an empty errlog makes grep exit 1, and pipefail would kill the run
+	lines=$(grep -v '^rsync error:' "$ERRLOG" 2>/dev/null | sort -u || true)
+	[[ -n "$lines" ]] || return 0
+	echo ""
+	warn "rsync reported problems — these files are NOT in the backup:"
+	head -20 <<< "$lines"
+}
+
 # -----------------------------------------------------------------------
 # Check SSD
 # -----------------------------------------------------------------------
@@ -165,7 +222,7 @@ done
 # Verify mode: compare latest backup against live source
 # -----------------------------------------------------------------------
 if [[ $verify_mode -eq 1 ]]; then
-	latest=$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+	latest=$(latest_snapshot)
 	if [[ -z "$latest" ]]; then
 		err "no backup found to verify"
 		exit 1
@@ -196,14 +253,28 @@ if [[ $verify_mode -eq 1 ]]; then
 			exclude_args+=(--exclude "$pat")
 		done
 
-		local_count=$(rsync "${RSYNC_FLAGS[@]}" "${exclude_args[@]}" --dry-run --stats \
-			"$src_path/" "$backup_path/" 2>/dev/null | grep "^Number of regular files transferred:" | awk '{print $NF}' || echo "0")
+		# capture rc separately — a failed rsync used to yield count 0, which
+		# read as "OK" and made --verify fail open
+		verify_out=$(mktemp -t backup-verify.XXXXXX)
+		rsync "${RSYNC_FLAGS[@]}" "${exclude_args[@]}" --dry-run --stats \
+			"$src_path/" "$backup_path/" >"$verify_out" 2>/dev/null && verify_rc=0 || verify_rc=$?
+		local_count=$(grep "^Number of regular files transferred:" "$verify_out" | awk '{print $NF}')
+		rm -f "$verify_out"
 		[[ -z "$local_count" ]] && local_count=0
 
-		local_size=$(du -sh "$src_path" --exclude=.git --exclude=node_modules --exclude=__pycache__ \
-			--exclude=.venv --exclude=venv --exclude=.conda --exclude=target \
-			--exclude=dist --exclude=build --exclude=.cache --exclude=.next \
-			--exclude=wandb --exclude=.uv-cache 2>/dev/null | cut -f1)
+		if [[ $verify_rc -ne 0 && $verify_rc -ne 23 ]]; then
+			err "$src: CANNOT VERIFY (rsync exit $verify_rc)"
+			verify_failed=1
+			continue
+		fi
+
+		# derive du's excludes from EXCLUDES so the two can't drift apart
+		du_excludes=()
+		for pat in "${EXCLUDES[@]}"; do
+			p="${pat%/}"; p="${p#/}"
+			du_excludes+=(--exclude="$p")
+		done
+		local_size=$(du -sh "$src_path" "${du_excludes[@]}" 2>/dev/null | cut -f1)
 		backup_size=$(du -sh "$backup_path" 2>/dev/null | cut -f1)
 
 		if [[ "$local_count" -le 5 ]]; then
@@ -227,7 +298,7 @@ fi
 # Sync mode: incremental update to latest backup
 # -----------------------------------------------------------------------
 if [[ $sync_mode -eq 1 ]]; then
-	latest=$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+	latest=$(latest_snapshot)
 	if [[ -z "$latest" ]]; then
 		err "no existing backup to sync — run a full backup first"
 		exit 1
@@ -260,7 +331,6 @@ if [[ $sync_mode -eq 1 ]]; then
 		fi
 
 		dest="$latest/$src"
-		mkdir -p "$dest"
 
 		if [[ $dry_run -eq 1 ]]; then
 			info "syncing $src (dry run)..."
@@ -269,13 +339,14 @@ if [[ $sync_mode -eq 1 ]]; then
 			echo ""
 		else
 			info "syncing $src..."
+			mkdir -p "$dest"
+			# capture rc directly — piping into grep would hide it behind pipefail
+			rsync_out=$(mktemp -t backup-sync.XXXXXX)
 			rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" --stats \
-				"$src_path/" "$dest/" 2>&1 | grep -E "^(Number|Total)" | head -5 || true
-			rsync_rc=${PIPESTATUS[0]}
-			# exit 23 = partial transfer (expected: --no-links skips symlinks)
-			if [[ $rsync_rc -ne 0 && $rsync_rc -ne 23 ]]; then
-				sync_failed=1
-			fi
+				"$src_path/" "$dest/" >"$rsync_out" 2>>"$ERRLOG" && rsync_rc=0 || rsync_rc=$?
+			grep -E "^(Number|Total)" "$rsync_out" | head -5 || true
+			rm -f "$rsync_out"
+			reap_rsync "$rsync_rc" || sync_failed=1
 			echo ""
 		fi
 	done
@@ -290,10 +361,13 @@ if [[ $sync_mode -eq 1 ]]; then
 	if [[ $dry_run -eq 0 ]]; then
 		log "time: ${elapsed}s"
 		log "target: $(basename "$latest")"
-		record_backup_time
+
+		report_errlog
 
 		if [[ $sync_failed -ne 0 ]]; then
-			warn "some items had sync errors"
+			warn "some items had sync errors — not recording this as a good backup"
+		else
+			record_backup_time
 		fi
 	else
 		warn "dry run — nothing was changed"
@@ -337,7 +411,7 @@ fi
 # Choose backup directory
 if [[ $subfolder_mode -eq 1 ]]; then
 	# Subfolder mode: update the latest existing backup in-place
-	latest=$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+	latest=$(latest_snapshot)
 	if [[ -z "$latest" ]]; then
 		err "no existing backup to update — run a full backup first"
 		exit 1
@@ -380,6 +454,7 @@ sync_parallel() {
 		local excluded=0
 		for excl in "${EXCLUDES[@]}"; do
 			local excl_name="${excl%/}"
+			excl_name="${excl_name#/}"   # anchored patterns skip the same top-level name
 			[[ "$name" == "$excl_name" ]] && excluded=1 && break
 		done
 		if [[ $excluded -eq 1 ]]; then
@@ -391,21 +466,11 @@ sync_parallel() {
 
 		if [[ -d "$item_path" ]]; then
 			mkdir -p "$dest/$name"
-			if [[ $use_ionice -eq 1 ]]; then
-				ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" \
-					"$item_path/" "$dest/$name/" >/dev/null 2>&1 &
-			else
-				rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" \
-					"$item_path/" "$dest/$name/" >/dev/null 2>&1 &
-			fi
+			"${nice_rsync[@]}" "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" \
+				"$item_path/" "$dest/$name/" >/dev/null 2>>"$ERRLOG" &
 		else
-			if [[ $use_ionice -eq 1 ]]; then
-				ionice -c 2 -n 0 rsync "${RSYNC_FLAGS[@]}" \
-					"$item_path" "$dest/" >/dev/null 2>&1 &
-			else
-				rsync "${RSYNC_FLAGS[@]}" \
-					"$item_path" "$dest/" >/dev/null 2>&1 &
-			fi
+			"${nice_rsync[@]}" "${RSYNC_FLAGS[@]}" \
+				"$item_path" "$dest/" >/dev/null 2>>"$ERRLOG" &
 		fi
 		batch_pids+=($!)
 
@@ -413,10 +478,7 @@ sync_parallel() {
 		if (( ${#batch_pids[@]} >= jobs )); then
 			for pid in "${batch_pids[@]}"; do
 				wait "$pid" 2>/dev/null; local rc=$?
-				# exit 23 = partial transfer (expected: --no-links skips symlinks)
-				if [[ $rc -ne 0 && $rc -ne 23 ]]; then
-					sync_failed_local=1
-				fi
+				reap_rsync $rc || sync_failed_local=1
 				done_count=$(( done_count + 1 ))
 			done
 			info "  [$done_count/$total_items] items synced..."
@@ -427,9 +489,7 @@ sync_parallel() {
 	# Wait for remaining batch
 	for pid in "${batch_pids[@]}"; do
 		wait "$pid" 2>/dev/null; local rc=$?
-		if [[ $rc -ne 0 && $rc -ne 23 ]]; then
-			sync_failed_local=1
-		fi
+		reap_rsync $rc || sync_failed_local=1
 		done_count=$(( done_count + 1 ))
 	done
 
@@ -484,8 +544,22 @@ elapsed=$(( SECONDS - start_time ))
 # -----------------------------------------------------------------------
 # Prune old backups (only for full backups, not subfolder updates)
 # -----------------------------------------------------------------------
-if [[ $dry_run -eq 0 && $subfolder_mode -eq 0 ]]; then
-	mapfile -t all_backups < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | sort)
+# Only a clean, complete snapshot earns the right to delete an older one.
+# Pruning after a failed or partial run is how you end up with nothing but
+# a truncated backup.
+prune_skip_reason=""
+if [[ $dry_run -eq 1 ]]; then
+	prune_skip_reason="dry run"
+elif [[ $subfolder_mode -eq 1 ]]; then
+	prune_skip_reason="subfolder update, not a new snapshot"
+elif [[ ${#targets[@]} -gt 0 ]]; then
+	prune_skip_reason="partial snapshot (only: ${targets[*]}) — would prune complete ones"
+elif [[ $sync_failed -ne 0 ]]; then
+	prune_skip_reason="this backup had errors — keeping every older snapshot"
+fi
+
+if [[ -z "$prune_skip_reason" ]]; then
+	mapfile -t all_backups < <(list_snapshots)
 	total=${#all_backups[@]}
 
 	if (( total > keep )); then
@@ -493,10 +567,14 @@ if [[ $dry_run -eq 0 && $subfolder_mode -eq 0 ]]; then
 		log "pruning $prune_count old backup(s) (keeping $keep)..."
 		for (( i=0; i<prune_count; i++ )); do
 			old="${all_backups[$i]}"
+			# never delete the snapshot this run just wrote
+			[[ "$old" == "$backup_dir" ]] && continue
 			info "  removing: $(basename "$old")"
 			rm -rf "$old"
 		done
 	fi
+elif [[ $dry_run -eq 0 ]]; then
+	warn "skipping prune: $prune_skip_reason"
 fi
 
 # -----------------------------------------------------------------------
@@ -519,6 +597,10 @@ if [[ $dry_run -eq 0 ]]; then
 		size=$(du -sh "$b" 2>/dev/null | cut -f1)
 		echo -e "  ${BOLD}$(basename "$b")${NC}  ${size}"
 	done
+
+	# Files rsync could not write (exFAT-illegal names, I/O errors) — name them,
+	# don't let them disappear silently
+	report_errlog
 
 	# Record successful backup time
 	if [[ $sync_failed -eq 0 ]]; then

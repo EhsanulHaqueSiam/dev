@@ -112,7 +112,7 @@ Configs are **copies**, not symlinks. After editing a live config (e.g. `~/.conf
 ```bash
 ./restore                          # list available backups
 ./restore Personal                 # restore from latest
-./restore --from 2026-02-15 Personal   # restore from specific backup
+./restore --from 2026-02-15_14-30-00 Personal   # specific backup (full directory name)
 ```
 
 ### Manage secrets
@@ -179,8 +179,21 @@ env/.bashrc        -->  ~/.bashrc
 
 Parallel rsync optimized for exFAT. Two modes, auto-detected:
 
-- **Full snapshot**: `./backup` or `./backup Personal` -- creates timestamped directory, auto-prunes old ones
+- **Full snapshot**: `./backup` -- creates a timestamped directory, then prunes older ones
 - **Subfolder update**: `./backup Personal/dev` -- updates latest backup in-place (no new snapshot)
+
+**What gets backed up.** Sources come from `SOURCES` in `~/.config/dev-env/config`
+(comma-separated, relative to `$HOME`) -- e.g. `SOURCES="Personal,Work,.config"`.
+Build output and caches are excluded; `.git/` is **not**, so a restore brings back
+history, branches and stashes rather than a bare working tree. For `.config`,
+browser profiles and credential stores (1Password, Bitwarden, Signal) are excluded
+-- exFAT records no permissions, so anything copied there is world-readable.
+
+**When pruning is skipped.** Old snapshots are only deleted after a run that is
+both complete and clean. A dry run, a subfolder update, a partial run
+(`./backup Personal`), or any rsync failure leaves every existing snapshot alone.
+Only directories named `YYYY-MM-DD_HH-MM-SS` count as snapshots -- anything else
+in the backup root is ignored, never pruned, and never treated as "latest".
 
 ```bash
 ./backup                           # full backup
