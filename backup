@@ -106,6 +106,7 @@ verify_mode=0
 sync_mode=0
 keep=$DEFAULT_KEEP
 jobs=$DEFAULT_JOBS
+bwlimit=""
 targets=()
 
 while [[ $# -gt 0 ]]; do
@@ -115,6 +116,7 @@ while [[ $# -gt 0 ]]; do
 		--sync)   sync_mode=1 ;;
 		--keep)   shift; keep="${1:?--keep requires a number}" ;;
 		--jobs)   shift; jobs="${1:?--jobs requires a number}" ;;
+		--bwlimit) shift; bwlimit="${1:?--bwlimit requires a rate, e.g. 40M}" ;;
 		--ssd)    shift; SSD="${1:?--ssd requires a path}"; BACKUP_ROOT="$SSD/backups" ;;
 		-h|--help)
 			cat <<-EOF
@@ -135,6 +137,8 @@ while [[ $# -gt 0 ]]; do
 			  --verify            Verify latest backup integrity
 			  --keep <n>          Keep N snapshots, prune older ones (default: $DEFAULT_KEEP)
 			  --jobs <n>          Parallel rsync workers (default: $DEFAULT_JOBS)
+			  --bwlimit <rate>    Cap write throughput, e.g. 40M — use when the
+			                      drive drops off the USB bus under sustained load
 			  --ssd <path>        Override SSD mount path
 			  -h, --help          Show this help message
 			EOF
@@ -162,6 +166,14 @@ fi
 # Check dependencies
 # -----------------------------------------------------------------------
 command -v rsync &>/dev/null || { err "rsync required"; exit 1; }
+
+# Throttle sustained throughput. Some USB enclosures drop off the bus after a
+# few minutes of flat-out writing (heat or power); capping the rate keeps the
+# transfer inside what the drive can sustain.
+if [[ -n "$bwlimit" ]]; then
+	RSYNC_FLAGS+=(--bwlimit="$bwlimit")
+	log "throughput capped at $bwlimit"
+fi
 use_ionice=0
 if command -v ionice &>/dev/null; then
 	use_ionice=1
