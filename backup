@@ -61,6 +61,33 @@ EXCLUDES=(
 	/Signal
 )
 
+# exFAT rejects : " * ? < > | \ in names, silently drops a trailing dot, and
+# stores no symlinks (--no-links below). rsync skips all of them;
+# pack_unportable carries them in a tar inside the snapshot instead.
+# Omarchy seeds these into ~/.config and keeps them current on every update,
+# so a fresh install already brings back the newest versions. They are read
+# from Omarchy's own config/ dir (never hard-coded) and skipped for .config only.
+OMARCHY_CONFIG_DIR="$HOME/.local/share/omarchy/config"
+OMARCHY_OWNED=()
+if [[ -d "$OMARCHY_CONFIG_DIR" ]]; then
+	for f in "$OMARCHY_CONFIG_DIR"/* "$OMARCHY_CONFIG_DIR"/.[!.]*; do
+		[[ -e "$f" ]] && OMARCHY_OWNED+=("${f##*/}")
+	done
+fi
+EXCLUDES+=('*.omarchy-upgrade-to-*')   # Omarchy's own pre-upgrade copies
+
+# Extra top-level names to skip for one source (only .config has any)
+source_skips() {
+	[[ "$1" == ".config" ]] && printf '%s\n' "${OMARCHY_OWNED[@]}"
+	return 0
+}
+
+UNPORTABLE_TAR=".unportable.tar"
+# exFAT also forgets which files are executable; this NUL-separated list of
+# relative paths lets ./restore set the bit on exactly those files.
+EXEC_LIST=".executables"
+UNPORTABLE_EXCLUDES=('*:*' '*"*' '*\**' '*\?*' '*<*' '*>*' '*|*' '*\\*' '*.')
+
 # exFAT-optimized rsync flags:
 #   -r              recursive
 #   --times         preserve modification times
@@ -190,8 +217,8 @@ trap 'rm -f "$ERRLOG"' EXIT
 
 # Classify an rsync exit code.
 #   0  clean
-#   23 partial transfer — individual files could not be written (on exFAT that
-#      is usually a filename containing : " * ? < > | ). The snapshot is
+#   23 partial transfer — individual files could not be written (unsafe names
+#      are excluded and tarred, so this is now an I/O-level problem). The snapshot is
 #      otherwise complete, so this does not fail the run — but the offending
 #      files get named from $ERRLOG instead of vanishing silently.
 #   *  real failure — fails the run, which also blocks pruning
@@ -226,9 +253,51 @@ fs_info=$(df -Th "$SSD" | awk 'NR==2 {printf "%s | %s/%s used | %s free", $2, $4
 # Build rsync exclude flags
 # -----------------------------------------------------------------------
 exclude_flags=()
-for pat in "${EXCLUDES[@]}"; do
+for pat in "${EXCLUDES[@]}" "${UNPORTABLE_EXCLUDES[@]}"; do
 	exclude_flags+=(--exclude "$pat")
 done
+
+# Tar up what exFAT cannot hold (symlinks, unsafe names) from one source into
+# $dest/$UNPORTABLE_TAR and list its executables in $dest/$EXEC_LIST, both as
+# paths relative to the source. EXCLUDES are pruned so both match what rsync
+# copied. ./restore applies them.
+# ponytail: rewritten in full on every run, including --sync; fine while the
+# unsafe files are a few GB, add an mtime check if a sync ever drags on this.
+pack_unportable() {
+	local src_path="$1" dest="$2" src="$3" list n prune=()
+	while IFS= read -r n; do [[ -n "$n" ]] && prune+=(-path "./$n" -o); done < <(source_skips "$src")
+	for n in "${EXCLUDES[@]}"; do
+		n="${n%/}"
+		case "$n" in
+			*'*'*) ;;                          # file globs like *.pyc prune no directory
+			/*) prune+=(-path "./${n#/}" -o) ;;
+			*)  prune+=(-name "$n" -o) ;;
+		esac
+	done
+	list=$(mktemp -t backup-unportable.XXXXXX)
+	(cd "$src_path" && find . -mindepth 1 \( "${prune[@]}" -false \) -prune \
+		-o \( -type l -o -name '*[:"*?<>|\\]*' -o -name '*.' \) -print0) >"$list"
+	rm -f "$dest/$UNPORTABLE_TAR"
+	mkdir -p "$dest"
+	(cd "$src_path" && find . -mindepth 1 \( "${prune[@]}" -false \) -prune \
+		-o -type f -perm -u+x -print0) >"$dest/$EXEC_LIST"
+	if [[ -s "$list" ]]; then
+		# built on the internal disk, then copied by rsync so --bwlimit also
+		# covers it — a multi-GB tar written straight to the SSD is exactly the
+		# sustained burst that makes the drive drop off the bus
+		local stage="${XDG_CACHE_HOME:-$HOME/.cache}/dev-backup"
+		mkdir -p "$stage"
+		if ! tar -C "$src_path" --null -T "$list" -cf "$stage/$UNPORTABLE_TAR" 2>>"$ERRLOG" \
+			|| ! "${nice_rsync[@]}" "${RSYNC_FLAGS[@]}" "$stage/$UNPORTABLE_TAR" "$dest/" 2>>"$ERRLOG"; then
+			err "  could not pack symlinks / unsafe names from $src_path"
+			rm -f "$list" "$stage/$UNPORTABLE_TAR"
+			return 1
+		fi
+		rm -f "$stage/$UNPORTABLE_TAR"
+		info "  packed $(tr -cd '\0' <"$list" | wc -c) symlink(s) / unsafe name(s) into $UNPORTABLE_TAR"
+	fi
+	rm -f "$list"
+}
 
 # -----------------------------------------------------------------------
 # Verify mode: compare latest backup against live source
@@ -354,11 +423,14 @@ if [[ $sync_mode -eq 1 ]]; then
 			mkdir -p "$dest"
 			# capture rc directly — piping into grep would hide it behind pipefail
 			rsync_out=$(mktemp -t backup-sync.XXXXXX)
-			rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" --stats \
+			skip_flags=()
+			while IFS= read -r n; do [[ -n "$n" ]] && skip_flags+=(--exclude "/$n"); done < <(source_skips "$src")
+			rsync "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" "${skip_flags[@]}" --stats \
 				"$src_path/" "$dest/" >"$rsync_out" 2>>"$ERRLOG" && rsync_rc=0 || rsync_rc=$?
 			grep -E "^(Number|Total)" "$rsync_out" | head -5 || true
 			rm -f "$rsync_out"
 			reap_rsync "$rsync_rc" || sync_failed=1
+			pack_unportable "$src_path" "$dest" "$src" || sync_failed=1
 			echo ""
 		fi
 	done
@@ -461,10 +533,13 @@ sync_parallel() {
 	local done_count=0
 	local batch_pids=()
 
+	local skips=()
+	mapfile -t skips < <(source_skips "$label")
+
 	for name in "${items[@]}"; do
 		# Skip excluded items
 		local excluded=0
-		for excl in "${EXCLUDES[@]}"; do
+		for excl in "${EXCLUDES[@]}" "${skips[@]}"; do
 			local excl_name="${excl%/}"
 			excl_name="${excl_name#/}"   # anchored patterns skip the same top-level name
 			[[ "$name" == "$excl_name" ]] && excluded=1 && break
@@ -476,12 +551,19 @@ sync_parallel() {
 
 		local item_path="$src_path/$name"
 
+		# a top-level symlink to a directory passes -d, and "$item_path/" would
+		# copy whatever it points at; links travel in $UNPORTABLE_TAR instead
+		if [[ -L "$item_path" ]]; then
+			done_count=$(( done_count + 1 ))
+			continue
+		fi
+
 		if [[ -d "$item_path" ]]; then
 			mkdir -p "$dest/$name"
 			"${nice_rsync[@]}" "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" \
 				"$item_path/" "$dest/$name/" >/dev/null 2>>"$ERRLOG" &
 		else
-			"${nice_rsync[@]}" "${RSYNC_FLAGS[@]}" \
+			"${nice_rsync[@]}" "${RSYNC_FLAGS[@]}" "${exclude_flags[@]}" \
 				"$item_path" "$dest/" >/dev/null 2>>"$ERRLOG" &
 		fi
 		batch_pids+=($!)
@@ -548,6 +630,7 @@ for src in "${sources[@]}"; do
 	# REAL BACKUP: parallel rsync
 	# ---------------------------------------------------------------
 	sync_parallel "$src_path" "$dest" "$src" || sync_failed=1
+	pack_unportable "$src_path" "$dest" "$src" || sync_failed=1
 	echo ""
 done
 

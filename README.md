@@ -248,7 +248,9 @@ Auto-discovers `.env`, `.env.local`, `.env.production`, `.env.development` acros
 
 #### Claude Code config
 
-Backs up `.claude.json`, `.claude/settings.json`, and `.claude/CLAUDE.md` (MCP servers, plugins, API keys).
+Backs up `.claude.json`, settings, `CLAUDE.md`, login token, history, statusline,
+themes, plugin manifests, hand-written agents/commands/hooks/skills (symlinks
+kept as symlinks) and per-project memory.
 
 ```bash
 ./secrets claude backup            # encrypt → SSD
@@ -315,6 +317,61 @@ Full menu-driven interface for everything above. Powered by [gum](https://github
 **Menus:** Install Tools, Deploy Configs, Skills, Backup, Restore, Secrets, Status, Live Dashboard, Settings
 
 **Settings:** SSD path, multiple SSDs (add/remove/switch), projects directory, source folders -- all changeable at any time.
+
+---
+
+## Full Restore on a Fresh Omarchy
+
+Brings back your files, app configs, packages, services, logins and Claude setup.
+Omarchy's own configs (everything it ships in `~/.local/share/omarchy/config`)
+are never backed up or restored — the fresh install already has the newest ones.
+
+```bash
+# 0. Install Omarchy, plug in the SSD, open a terminal.
+
+# 1. Toolkit (public repo, no SSH key needed yet)
+git clone https://github.com/EhsanulHaqueSiam/dev.git ~/dev-toolkit
+cd ~/dev-toolkit
+mkdir -p ~/.config/dev-env
+echo 'SSD_PATH="/run/media/siam/TRANSCEND"' > ~/.config/dev-env/config
+
+# 2. Secrets, one passphrase: SSH keys, packages + services + /etc additions,
+#    Claude config, GPG/keyring/CLI tokens/browser profiles, .env files
+./secrets all restore
+
+# 3. Files: everything in SOURCES from the newest snapshot, including symlinks,
+#    exFAT-unsafe names and executable bits
+./restore Personal Work .config Documents Downloads Pictures Videos Desktop \
+          betascript-project .agents .local/bin .local/share/applications \
+          .local/share/icons .local/share/.mediavault
+
+# 4. Claude plugins and marketplaces from the restored manifests
+./secrets claude setup
+
+# 5. Stash: `sp` downloads Stash itself; rebuild its plugin venv
+python3 -m venv ~/.local/share/stash/plugin-venv
+~/.local/share/stash/plugin-venv/bin/pip install -r ~/.local/share/.mediavault/plugin-venv-requirements.txt
+
+# 6. Log out and back in (keyring, services, shell)
+```
+
+`secrets system restore` only adds: missing packages, services that are not
+enabled yet, and `/etc` / `/usr/local` files that do not exist. Files that
+differ from the fresh install are listed and left alone; your versions sit in
+`~/system-restore-review/` for a manual look.
+
+### Backing up
+
+```bash
+./backup --sync --jobs 1 --bwlimit 40M   # files → latest snapshot (gentle on the TRANSCEND drive)
+./backup                                  # or a fresh snapshot, prunes to --keep
+./secrets all backup                      # all secrets, one passphrase, each archive test-decrypted
+```
+
+exFAT stores no symlinks, no permissions and no names containing `: " * ? < > | \`
+(a trailing `.` is silently dropped). `./backup` puts those entries in a
+`.unportable.tar` at each source root and lists executables in `.executables`;
+`./restore` applies both after copying.
 
 ---
 

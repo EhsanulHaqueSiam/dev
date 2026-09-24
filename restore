@@ -16,7 +16,28 @@ DEFAULT_JOBS=4
 #   -r          recursive
 #   --times     preserve modification times
 #   --no-links  backup has no symlinks (was exFAT)
-RSYNC_FLAGS=(-r --times --no-links)
+#   --chmod     exFAT reports every file as 755; reset to 644/755 and let
+#               apply_sidecars mark the real executables
+#   --exclude   the sidecars ./backup writes at each source root
+RSYNC_FLAGS=(-r --times --no-links --chmod=D755,F644
+	--exclude=.unportable.tar --exclude=.executables)
+
+# Put back what ./backup could not store as plain files on exFAT: symlinks and
+# unsafe names come out of .unportable.tar, executable bits from .executables.
+# Sidecars can sit at any depth (a subfolder backup writes its own), so every
+# pair found under the backed-up tree is applied to the matching directory.
+apply_sidecars() {
+	local src_path="$1" dest_path="$2" f dir rc=0
+	while IFS= read -r -d '' f; do
+		dir="$dest_path${f#"$src_path"}"; dir="${dir%/*}"
+		mkdir -p "$dir"
+		case "${f##*/}" in
+			.unportable.tar) tar -C "$dir" -xf "$f" || rc=1 ;;
+			.executables)    (cd "$dir" && xargs -0 -r chmod +x -- <"$f" 2>/dev/null) || true ;;
+		esac
+	done < <(find "$src_path" \( -name .unportable.tar -o -name .executables \) -print0 | sort -z)
+	return $rc
+}
 
 # Colors
 GREEN='\033[0;32m'
@@ -344,6 +365,7 @@ for target in "${targets[@]}"; do
 		done_count=$(( done_count + 1 ))
 	done
 
+	apply_sidecars "$src_path" "$dest_path" || { err "could not unpack symlinks / unsafe names for $target"; sync_failed=1; }
 	log "done: $target [$done_count/$total_items items]"
 	echo ""
 done
