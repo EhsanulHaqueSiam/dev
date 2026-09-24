@@ -58,7 +58,11 @@ EXCLUDES=(
 	# anything here would sit world-readable on a stick in a drawer:
 	/1Password
 	/Bitwarden
+	"/Bitwarden CLI"
 	/Signal
+	# the saved `bw unlock` session: with Bitwarden CLI's data.json it opens
+	# the vault cache, so neither may sit unencrypted on the drive
+	.bw_session
 )
 
 # exFAT rejects : " * ? < > | \ in names, silently drops a trailing dot, and
