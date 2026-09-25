@@ -332,11 +332,13 @@ if [[ $verify_mode -eq 1 ]]; then
 			continue
 		fi
 
-		# Count files (excluding common ignores)
-		exclude_args=()
-		for pat in "${EXCLUDES[@]}"; do
-			exclude_args+=(--exclude "$pat")
-		done
+		# Same filters the backup used: EXCLUDES, unsafe names (they live in
+		# $UNPORTABLE_TAR) and this source's skips (Omarchy-owned configs);
+		# otherwise everything deliberately left out reads as "differs"
+		exclude_args=("${exclude_flags[@]}")
+		while IFS= read -r n; do
+			[[ -n "$n" ]] && exclude_args+=(--exclude "/$n")
+		done < <(source_skips "$src")
 
 		# capture rc separately — a failed rsync used to yield count 0, which
 		# read as "OK" and made --verify fail open
